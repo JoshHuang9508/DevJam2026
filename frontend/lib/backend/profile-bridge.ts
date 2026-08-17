@@ -116,9 +116,19 @@ export function toSearchProfile(
   }
   // The backend picked these by ranking, not by user constraint — they are the
   // 選區 step feeding the listing search.
-  const picked = districts.slice(0, DISTRICT_FANOUT).map((d) => d.district)
-  if (picked.length > 0) hard.districts = [...new Set(picked)]
-  else delete hard.districts
+  const top = districts.slice(0, DISTRICT_FANOUT)
+  const picked = top.map((d) => d.district)
+  if (picked.length > 0) {
+    hard.districts = [...new Set(picked)]
+    // 行政區名在全台不唯一 —— 大安區有臺北與臺中兩個、中正區有五個。
+    // 資料只涵蓋雙北時看不出來，擴到全台之後「大安區」會同時命中臺中的物件。
+    // 所以連同這些區所屬的縣市一起設成硬條件，把比對限縮在正確的縣市內。
+    // 使用者自己指定過 cities 時以使用者的為準，不覆蓋。
+    if (!hardIn.cities?.length) {
+      const cities = [...new Set(top.map((d) => d.city))]
+      if (cities.length > 0) hard.cities = cities
+    }
+  } else delete hard.districts
 
   if (base.mode === 'rent') {
     if (typeof hardIn.maxMonthlyRent === 'number') hard.budgetMax = hardIn.maxMonthlyRent

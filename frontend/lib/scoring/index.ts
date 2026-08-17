@@ -13,6 +13,12 @@ export const MAX_RESULTS = 100
  * 所以實際的 cap 取「這個值」與「平均分給每一區的名額」的較大者。
  */
 export const MAX_PER_DISTRICT = 5
+/**
+ * 同一縣市最多幾筆。行政區那一層的配額擋不住這件事 —— 全台 368 個區、
+ * 每區 5 筆的話，100 個名額仍然可能全被成交量最大的新北與桃園吃掉，
+ * 其他 20 個縣市一筆都排不進來。同樣是取較大者，候選池只剩一兩個縣市時放寬。
+ */
+export const MAX_PER_CITY = 25
 
 const clampWeight = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : v)
 
@@ -89,17 +95,22 @@ export function score(
 
   scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
 
-  // 多樣性：同一行政區最多 perDistrictCap 筆，避免結果全擠一區。
-  // 候選池只涵蓋少數幾區時放寬，否則篩到單一行政區只會拿到 MAX_PER_DISTRICT 筆。
+  // 多樣性護欄有兩層：縣市與行政區。兩層都是「取設定值與平均名額的較大者」，
+  // 候選池被篩窄時自動放寬，否則使用者指定單一行政區只會拿到 5 筆。
   const districtCount = new Set(scored.map((r) => `${r.city}|${r.district}`)).size
+  const cityCount = new Set(scored.map((r) => r.city)).size
   const perDistrictCap = Math.max(MAX_PER_DISTRICT, Math.ceil(MAX_RESULTS / Math.max(districtCount, 1)))
+  const perCityCap = Math.max(MAX_PER_CITY, Math.ceil(MAX_RESULTS / Math.max(cityCount, 1)))
+
   const perDistrict = new Map<string, number>()
+  const perCity = new Map<string, number>()
   const diverse: ScoredListing[] = []
   for (const r of scored) {
-    const key = `${r.city}|${r.district}`
-    const n = perDistrict.get(key) ?? 0
-    if (n >= perDistrictCap) continue
-    perDistrict.set(key, n + 1)
+    const districtKey = `${r.city}|${r.district}`
+    if ((perDistrict.get(districtKey) ?? 0) >= perDistrictCap) continue
+    if ((perCity.get(r.city) ?? 0) >= perCityCap) continue
+    perDistrict.set(districtKey, (perDistrict.get(districtKey) ?? 0) + 1)
+    perCity.set(r.city, (perCity.get(r.city) ?? 0) + 1)
     diverse.push(r)
     if (diverse.length >= MAX_RESULTS) break
   }

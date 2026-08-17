@@ -20,7 +20,7 @@
  * dataGaps 標示 —— 這比塞一個假數字進去誠實。
  */
 import Database from 'better-sqlite3'
-import { DISTRICTS } from '../lib/pipeline/districts'
+import { CITY_CENTROIDS, DISTRICTS, findDistrict } from '../lib/pipeline/districts'
 import {
   Geocoder, GridIndex, fetchFloodPoints, fetchLiquefaction, fetchMrtExits, fetchPoi,
   liquefactionLevel, type PoiIndex, type Point,
@@ -62,18 +62,50 @@ async function main(): Promise<void> {
   log('lvr', `${raw.length} 筆成交，篩選後 ${records.length} 筆可當住宅物件`)
   if (records.length === 0) throw new Error('實價登錄一筆都沒解析出來，不覆寫既有資料')
 
-  /* -------- 2. 定位 ------------------------------------------------ */
-  const geocoder = new Geocoder(`${CACHE_DIR}/geocode.json`, process.env.GEOCODING_API_KEY)
-  const located: (LvrRecord & { lat: number; lng: number; approximate: boolean })[] = []
+  /* -------- 2. 定位（兩段式）--------------------------------------- */
+  // 第一段盡量精確定位，第二段才處理失敗的。
+  // 不能在第一段就退回「行政區重心」—— 全台 368 個區不可能硬寫成表，
+  // 之前只有 30 個區的版本會讓查不到的區全部退到清單第一筆（中正區），
+  // 於是桃園台中高雄的物件會整批落在台北市中心。
+  const geocoder = new Geocoder(
+    `${CACHE_DIR}/geocode.json`,
+    process.env.GEOCODING_API_KEY,
+    Number(process.env.GEOCODE_BUDGET) || Number.POSITIVE_INFINITY,
+  )
+
+  type Located = LvrRecord & { lat: number; lng: number; approximate: boolean }
+  const located: Located[] = []
+  const pending: LvrRecord[] = []
+
   for (const [index, record] of records.entries()) {
-    const { point, approximate } = await geocoder.lookup(record.address, record.city, record.district)
-    located.push({ ...record, ...point, approximate })
-    if ((index + 1) % 500 === 0) log('geocode', `${index + 1}/${records.length}`)
+    const point = await geocoder.lookup(record.address)
+    if (point) located.push({ ...record, ...point, approximate: false })
+    else pending.push(record)
+    if ((index + 1) % 1000 === 0) log('geocode', `${index + 1}/${records.length}（精確 ${located.length}）`)
   }
   geocoder.save()
+
+  // 用已精確定位的物件反推每一區、每一縣市的重心。比任何硬寫的表都準，
+  // 而且自動涵蓋全台 —— 有資料的地方就有重心。
+  const districtCentroids = meanByKey(located, (r) => `${r.city}|${r.district}`)
+  const cityCentroids = meanByKey(located, (r) => r.city)
+
+  for (const record of pending) {
+    const centroid = districtCentroids.get(`${record.city}|${record.district}`)
+      ?? cityCentroids.get(record.city)
+      ?? findDistrict(record.city, record.district)
+      ?? CITY_CENTROIDS[record.city]
+    if (!centroid) {
+      log('geocode', `${record.city}${record.district} 沒有任何可用重心，略過這筆`)
+      continue
+    }
+    located.push({ ...record, ...jitter(centroid, record.address), approximate: true })
+  }
+
   const stats = geocoder.stats
-  log('geocode', `快取命中 ${stats.cached}、新查 ${stats.geocoded}、失敗 ${stats.failed}、`
-    + `近似座標 ${located.filter((r) => r.approximate).length} 筆`)
+  log('geocode', `快取命中 ${stats.cached}、新查 ${stats.geocoded}、查無 ${stats.failed}、`
+    + `近似座標 ${located.filter((r) => r.approximate).length}/${located.length} 筆`
+    + (geocoder.budgetExhausted ? `（已達 GEOCODE_BUDGET 上限 ${stats.budgetSpent}）` : ''))
 
   /* -------- 3. 環境特徵 -------------------------------------------- */
   const poi: PoiIndex = wants('poi')
@@ -151,10 +183,18 @@ async function main(): Promise<void> {
       db.prepare('DELETE FROM listings').run()
     }
 
+    // districts 表用實際資料算出來的重心，涵蓋全台有成交紀錄的每一個區；
+    // DISTRICTS 那 30 筆只是雙北的備援。
+    const districtRows = meanByKey(located, (r) => `${r.city}|${r.district}`)
+    const insertDistrict = db.prepare(`INSERT OR REPLACE INTO districts
+      (id, city, name, centroid_lat, centroid_lng, boundary) VALUES (?, ?, ?, ?, ?, NULL)`)
+    for (const [key, point] of districtRows) {
+      const [city, name] = key.split('|')
+      insertDistrict.run(`${city}-${name}`, city, name, point.lat, point.lng)
+    }
     for (const district of DISTRICTS) {
-      db.prepare(`INSERT OR REPLACE INTO districts (id, city, name, centroid_lat, centroid_lng, boundary)
-                  VALUES (?, ?, ?, ?, ?, NULL)`)
-        .run(`${district.city}-${district.name}`, district.city, district.name, district.lat, district.lng)
+      if (districtRows.has(`${district.city}|${district.name}`)) continue
+      insertDistrict.run(`${district.city}-${district.name}`, district.city, district.name, district.lat, district.lng)
     }
 
     for (const record of located) {
@@ -244,6 +284,30 @@ async function main(): Promise<void> {
 
   log('pipeline', `完成，耗時 ${Math.round((Date.now() - started) / 1000)}s：`
     + counts.map((c) => `${c.mode}=${c.n}`).join(' '))
+}
+
+/** 依 key 分群取座標平均。用來從已精確定位的物件反推行政區／縣市重心。 */
+function meanByKey<T extends Point>(items: T[], key: (item: T) => string): Map<string, Point> {
+  const sums = new Map<string, { lat: number; lng: number; n: number }>()
+  for (const item of items) {
+    const k = key(item)
+    const acc = sums.get(k)
+    if (acc) { acc.lat += item.lat; acc.lng += item.lng; acc.n += 1 }
+    else sums.set(k, { lat: item.lat, lng: item.lng, n: 1 })
+  }
+  return new Map([...sums].map(([k, v]) => [k, { lat: v.lat / v.n, lng: v.lng / v.n }]))
+}
+
+/** 重心 + 依門牌雜湊決定的固定位移（約 ±700m）。同一門牌永遠落在同一點。 */
+function jitter(centroid: Point, address: string): Point {
+  let hash = 2166136261
+  for (let i = 0; i < address.length; i += 1) {
+    hash ^= address.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  const a = ((hash >>> 0) % 10000) / 10000
+  const b = ((Math.imul(hash, 31) >>> 0) % 10000) / 10000
+  return { lat: centroid.lat + (a - 0.5) * 0.012, lng: centroid.lng + (b - 0.5) * 0.012 }
 }
 
 function count(grid: GridIndex, point: Point, radius: number, poolSize: number): number | null {

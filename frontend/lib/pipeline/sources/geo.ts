@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { DISTRICTS, findDistrict } from '../districts'
 import { fetchCached, haversineMeters, log, pointInRing, stripFloorSuffix, twd97ToWgs84 } from '../util'
 
 export interface Point { lat: number; lng: number }
@@ -270,41 +269,55 @@ interface GeocodeCache { [address: string]: { lat: number; lng: number } | null 
 /**
  * 實價登錄完全沒有座標，只有門牌 —— 這是整條 pipeline 唯一需要付費 API 的地方。
  *
- * 沒有金鑰時退回「行政區重心 + 依門牌雜湊的位移」：地圖上點位是假的，但同一個門牌
- * 每次都落在同一點，排序與距離特徵仍然可用。approximate 旗標會傳出去讓上層標示。
- *
  * 注意這把金鑰不能用 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY —— 那把設了 HTTP referrer 限制，
- * 從伺服器呼叫會被拒。要另外開一把用 IP 限制的。
+ * 從伺服器呼叫會被 REQUEST_DENIED。要另外開一把用 IP 限制的。
+ *
+ * 查不到就回 null，退路交給呼叫端（見 pipeline 的兩段式定位）。
  */
 export class Geocoder {
   private readonly cache: GeocodeCache
   private hits = 0
   private misses = 0
   private failures = 0
+  private budgetSpent = 0
 
-  constructor(private readonly cachePath: string, private readonly apiKey?: string) {
+  constructor(
+    private readonly cachePath: string,
+    private readonly apiKey?: string,
+    /** 一次執行最多新查幾筆。Google Geocoding 約 US$5/1000，這是防呆用的花費上限。 */
+    private readonly budget = Number.POSITIVE_INFINITY,
+  ) {
     this.cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf-8')) as GeocodeCache : {}
   }
 
-  get stats() { return { cached: this.hits, geocoded: this.misses, failed: this.failures } }
+  get stats() {
+    return { cached: this.hits, geocoded: this.misses, failed: this.failures, budgetSpent: this.budgetSpent }
+  }
 
-  async lookup(address: string, city: string, district: string): Promise<{ point: Point; approximate: boolean }> {
+  get budgetExhausted(): boolean {
+    return this.budgetSpent >= this.budget
+  }
+
+  /**
+   * 查一個門牌。回 null 代表這一筆沒有精確座標 —— 呼叫端要自己決定退路，
+   * 不要在這裡就退回行政區重心：全台 368 個區不可能硬寫成表，
+   * 正確的退路是「同一區其他已定位物件的重心」，而那要等第一輪跑完才算得出來。
+   */
+  async lookup(address: string): Promise<Point | null> {
     const key = stripFloorSuffix(address)
 
     if (key in this.cache) {
-      const hit = this.cache[key]
       this.hits += 1
-      if (hit) return { point: hit, approximate: false }
-      return { point: this.fallback(key, city, district), approximate: true }
+      return this.cache[key]
     }
+    if (!this.apiKey || this.budgetExhausted) return null
 
-    if (!this.apiKey) return { point: this.fallback(key, city, district), approximate: true }
-
+    this.budgetSpent += 1
     const point = await this.callGoogle(key)
     this.cache[key] = point
-    if (point) { this.misses += 1; return { point, approximate: false } }
-    this.failures += 1
-    return { point: this.fallback(key, city, district), approximate: true }
+    if (point) this.misses += 1
+    else this.failures += 1
+    return point
   }
 
   private async callGoogle(address: string): Promise<Point | null> {
@@ -320,7 +333,8 @@ export class Geocoder {
         status: string
         results?: { geometry?: { location?: { lat: number; lng: number } } }[]
       }
-      // OVER_QUERY_LIMIT 要讓整條 pipeline 停下來，不然會靜靜地把幾千筆全部退成近似值
+      // 這兩種是設定或額度問題，不是「這個地址查不到」。繼續打下去只會把幾千筆
+      // 全部靜靜地退成近似值，所以直接讓整條 pipeline 停下來。
       if (json.status === 'OVER_QUERY_LIMIT' || json.status === 'REQUEST_DENIED') {
         throw new Error(`Google Geocoding ${json.status} —— 檢查金鑰是否啟用 Geocoding API 且沒有 referrer 限制`)
       }
@@ -329,22 +343,6 @@ export class Geocoder {
     } catch (error) {
       if (error instanceof Error && error.message.includes('Google Geocoding')) throw error
       return null
-    }
-  }
-
-  /** 行政區重心 + 由門牌雜湊決定的固定位移（約 ±700m）。同一門牌永遠落在同一點。 */
-  private fallback(address: string, city: string, district: string): Point {
-    const centroid = findDistrict(city, district) ?? DISTRICTS[0]
-    let hash = 2166136261
-    for (let i = 0; i < address.length; i += 1) {
-      hash ^= address.charCodeAt(i)
-      hash = Math.imul(hash, 16777619)
-    }
-    const a = ((hash >>> 0) % 10000) / 10000
-    const b = ((Math.imul(hash, 31) >>> 0) % 10000) / 10000
-    return {
-      lat: centroid.lat + (a - 0.5) * 0.012,
-      lng: centroid.lng + (b - 0.5) * 0.012,
     }
   }
 
