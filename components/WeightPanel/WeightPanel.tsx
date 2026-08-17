@@ -49,13 +49,22 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                 min={0}
                 max={100}
                 step={1}
-                aria-label={WEIGHT_LABELS[key]}
                 onValueChange={([v]) => setWeight(key, v)}
               >
                 <Slider.Track className="relative h-1 w-full grow rounded-full bg-neutral-200">
                   <Slider.Range className="absolute h-full rounded-full bg-blue-600" />
                 </Slider.Track>
-                <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border-2 border-blue-600 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400" />
+                {/*
+                  aria-label 必須放在 Thumb 上，不能放 Root。
+                  Radix 只有 Thumb 帶 role="slider"，而且它只讀自己的 props，
+                  不會從 Root 繼承；單一 thumb 時內建的 getLabel fallback 也回傳 undefined。
+                  放錯位置 → 七個 slider 完全沒有無障礙名稱 → e2e 的
+                  getByRole('slider', { name }) 一個都選不到。
+                */}
+                <Slider.Thumb
+                  aria-label={WEIGHT_LABELS[key]}
+                  className="block h-3.5 w-3.5 rounded-full border-2 border-blue-600 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                />
               </Slider.Root>
             </li>
           )
