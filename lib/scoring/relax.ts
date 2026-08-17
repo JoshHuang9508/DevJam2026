@@ -1,3 +1,4 @@
+import { FENGSHUI_RULE_BY_KEY } from '@/lib/fengshui/rules'
 import type { ListingWithFeatures, RankResult } from '@/lib/types/listing'
 import type { SearchProfile } from '@/lib/types/profile'
 import { score } from './index'
@@ -47,6 +48,20 @@ const RELAX_STEPS: RelaxStep[] = [
       return {
         profile: { ...p, hard: { ...p.hard, budgetMax: next } },
         message: `把預算上限放寬到 ${next}`,
+      }
+    },
+  },
+  // 排在擴大行政區之前：風水是文化偏好，比「住哪一區」容易讓步，
+  // 而且拿掉後這些物件只是重新出現在清單裡（風水維度仍會扣它們的分），
+  // 不像換區那樣直接改變使用者的生活範圍。
+  {
+    applies: (p) => (p.hard.avoidFengshui?.length ?? 0) > 0,
+    apply: (p) => {
+      const names = p.hard.avoidFengshui!.map((k) => FENGSHUI_RULE_BY_KEY[k].name).join('、')
+      const { avoidFengshui: _dropped, ...rest } = p.hard
+      return {
+        profile: { ...p, hard: rest },
+        message: `暫時不排除有${names}的物件`,
       }
     },
   },

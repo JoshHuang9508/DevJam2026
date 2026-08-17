@@ -43,9 +43,13 @@ export function mergeProfile(current: SearchProfile, delta: ProfileDelta): Searc
   }
   for (const [key, value] of Object.entries(delta.hard ?? {})) {
     const k = key as keyof HardConstraints
-    if (value === null || value === undefined) {
+    // 只有 null 代表移除。undefined 一律當「這次沒提到」而略過 ——
+    // zod 的 transform 回 undefined 時 key 仍留在物件上（例如 avoidFengshui 收到一串
+    // 認不得的風水詞），若把它也當成移除，使用者上一輪設好的硬條件會被無聲清掉，
+    // 而且不會出現在 relaxations 裡（那不是放寬，是條件憑空消失）。
+    if (value === null) {
       delete hard[k]
-    } else {
+    } else if (value !== undefined) {
       // 值已由 Zod schema 驗證過型別，此處只做合併
       Object.assign(hard, { [k]: value })
     }

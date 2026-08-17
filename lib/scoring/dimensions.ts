@@ -1,3 +1,4 @@
+import { fengshuiSubscore } from '@/lib/fengshui/audit'
 import { estimateCommuteMinutes } from '@/lib/geo'
 import type { SearchProfile, WeightKey } from '@/lib/types/profile'
 import type { FilledListing } from './gaps'
@@ -135,6 +136,20 @@ const quality: DimensionFn = (f, p) => {
   )
 }
 
+/**
+ * 風水體檢分數（1 = 六項全數無虞）。判定完全交給 lib/fengshui 的確定性規則引擎，
+ * 這裡只負責把它接成一個維度 —— 排序仍舊是純函式，LLM 不參與。
+ *
+ * 既有排序零回歸：DEFAULT_PROFILE.weights.fengshui 為 0，normalizeWeights 後這一維的
+ * weight 恆為 0，contribution = subscore × 0 = 0，總分逐筆與加入本維度前相同。
+ * 使用者主動說「我在意風水」把權重拉起來，這一維才開始影響名次。
+ *
+ * 這一維讀 f.listing.features（**未補值**的原始證據）而不是 f.features，
+ * 理由見 fengshuiSubscore 的註解：旗標欄位的中位數補值會把「未檢測」變成「無虞」，
+ * 讓沒有格局圖的物件排到最前面。未檢測在這裡以中性風險計入，不獎勵也不懲罰。
+ */
+const fengshui: DimensionFn = (f) => fengshuiSubscore(f.listing.features)
+
 export const DIMENSIONS: Record<WeightKey, DimensionFn> = {
-  price, value, weather, location, amenities, space, quality,
+  price, value, weather, location, amenities, space, quality, fengshui,
 }

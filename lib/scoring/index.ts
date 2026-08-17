@@ -1,5 +1,5 @@
 import type { ListingWithFeatures, ScoredListing } from '@/lib/types/listing'
-import { WEIGHT_KEYS, type SearchProfile, type WeightKey } from '@/lib/types/profile'
+import { DEFAULT_PROFILE, WEIGHT_KEYS, type SearchProfile, type WeightKey } from '@/lib/types/profile'
 import { DIMENSIONS } from './dimensions'
 import { applyHardFilter } from './filter'
 import { fillDataGaps } from './gaps'
@@ -10,7 +10,14 @@ export const MAX_PER_DISTRICT = 5
 
 const clampWeight = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : v)
 
-/** 把 0..100 的權重 clamp 後正規化為總和 1；全為 0 時退回等權 */
+/**
+ * 把 0..100 的權重 clamp 後正規化為總和 1。
+ *
+ * 全為 0 時退回「預設權重的正規化結果」而不是無差別等權：等權會把 fengshui 也算進去，
+ * 讓一個明確設為 0 的信仰性維度拿到 1/8 的比重，違反「風水必須 opt-in」與
+ * 「未開啟風水時排序與加入本功能前逐筆相同」兩條不變量。
+ * DEFAULT_PROFILE 的 fengshui 是 0，其餘七維同值，因此這條退路等於七維各 1/7、風水 0。
+ */
 export function normalizeWeights(
   w: Record<WeightKey, number>,
 ): Record<WeightKey, number> {
@@ -21,9 +28,26 @@ export function normalizeWeights(
     clamped[k] = v
     total += v
   }
+
+  if (total === 0) {
+    let fallbackTotal = 0
+    for (const k of WEIGHT_KEYS) {
+      const v = clampWeight(DEFAULT_PROFILE.weights[k] ?? 0)
+      clamped[k] = v
+      fallbackTotal += v
+    }
+    // 預設權重本身全為 0 的話除法會炸出 NaN，這時才真的無差別等權
+    if (fallbackTotal === 0) {
+      const out = {} as Record<WeightKey, number>
+      for (const k of WEIGHT_KEYS) out[k] = 1 / WEIGHT_KEYS.length
+      return out
+    }
+    total = fallbackTotal
+  }
+
   const out = {} as Record<WeightKey, number>
   for (const k of WEIGHT_KEYS) {
-    out[k] = total === 0 ? 1 / WEIGHT_KEYS.length : clamped[k] / total
+    out[k] = clamped[k] / total
   }
   return out
 }

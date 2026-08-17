@@ -34,6 +34,15 @@ describe('parseFunctionCall', () => {
     expect(parseFunctionCall(undefined)).toEqual({})
   })
 
+  it('風水權重變動照收', () => {
+    expect(parseFunctionCall({ weightsDelta: { fengshui: 30 } }).weightsDelta?.fengshui).toBe(30)
+  })
+
+  it('模型把 avoidFengshui 寫成中文名時仍能正規化，幻覺項目丟棄', () => {
+    const d = parseFunctionCall({ hard: { avoidFengshui: ['穿堂煞', '五鬼運財'] } })
+    expect(d.hard?.avoidFengshui).toEqual(['throughDraft'])
+  })
+
   it('接受完整的一次萃取', () => {
     const d = parseFunctionCall({
       mode: 'rent',
@@ -96,10 +105,19 @@ describe('buildContents', () => {
 })
 
 describe('buildSystemInstruction', () => {
-  it('包含四條硬規則', () => {
+  it('包含五條硬規則', () => {
     const s = buildSystemInstruction(profile())
     expect(s).toContain('增量，不重寫')
     expect(s).toContain('hard 條件要保守')
+    expect(s).toContain('風水預設是權重，不是硬條件')
+  })
+
+  it('八個維度的說明都在，含風水', () => {
+    const s = buildSystemInstruction(profile())
+    for (const label of ['price', 'value', 'weather', 'location', 'amenities', 'space', 'quality', 'fengshui']) {
+      expect(s).toContain(label)
+    }
+    expect(s).toContain('八個權重維度')
   })
 
   it('帶入目前的權重，讓模型知道要做增量', () => {

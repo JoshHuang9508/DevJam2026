@@ -10,7 +10,7 @@ import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
  *   weather        <->  softPreferences.climate.weight
  *   location       <->  softPreferences.transportation.weight
  *   amenities      <->  softPreferences.amenities.weight
- *   space, quality  ->  (no district-level equivalent; never overwritten)
+ *   space, quality, fengshui -> (no district-level equivalent; never overwritten)
  *   (none)         <-   softPreferences.geography.weight (district selection only)
  *
  * Hard constraints split the same way: region/city/rent live in the backend, while
@@ -77,6 +77,10 @@ export function toSearchProfile(
     amenities: clamp100(soft.amenities.weight * 100),
     space: base.weights.space,
     quality: base.weights.quality,
+    // 風水是物件層級的體檢，後端的行政區模型沒有對應維度。這個欄位漏掉的話
+    // weights.fengshui 會是 undefined，normalizeWeights 加總後整份權重變 NaN、排序全毀，
+    // 所以比照 space/quality 一律沿用 base —— 新增權重維度時這裡必須跟著補。
+    fengshui: base.weights.fengshui,
   }
 
   const hard: SearchProfile['hard'] = { ...base.hard }

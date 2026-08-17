@@ -8,7 +8,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
-    "predb:push": "mkdir -p data",
+    "predb:push": "node -e \"require('fs').mkdirSync('data',{recursive:true})\"",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "e2e": "playwright test",

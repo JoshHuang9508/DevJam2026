@@ -24,6 +24,7 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
           amenities: { type: Type.NUMBER },
           space: { type: Type.NUMBER },
           quality: { type: Type.NUMBER },
+          fengshui: { type: Type.NUMBER },
         },
       },
       hard: {
@@ -45,6 +46,25 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
           needElevator: { type: Type.BOOLEAN },
           needParking: { type: Type.BOOLEAN },
           maxDistToMetro: { type: Type.NUMBER, description: '離捷運距離上限，單位公尺' },
+          avoidFengshui: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.STRING,
+              enum: [
+                'throughDraft',
+                'stoveInSight',
+                'toiletFacingDoor',
+                'beamPressure',
+                'narrowHall',
+                'roadRush',
+              ],
+            },
+            description:
+              '使用者明確說「絕對不要」的風水忌諱，會直接排除物件。'
+              + 'throughDraft 穿堂煞、stoveInSight 開門見灶、toiletFacingDoor 開門見廁、'
+              + 'beamPressure 樑壓床／樑壓沙發、narrowHall 明堂狹窄、roadRush 路衝／壁刀。'
+              + '只是「在意風水」請改調 weightsDelta.fengshui。',
+          },
         },
       },
       soft: {

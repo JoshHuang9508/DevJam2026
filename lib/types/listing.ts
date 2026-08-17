@@ -1,3 +1,4 @@
+import type { FengshuiEvidence } from './fengshui'
 import type { Mode, WeightKey } from './profile'
 
 export interface Listing {
@@ -28,7 +29,11 @@ export interface Listing {
   hasParking: boolean
 }
 
-export interface ListingFeatures {
+/**
+ * 八個 fs* 風水證據欄位直接併進 ListingFeatures，因此自動成為 FeatureKey 的一部分 ——
+ * 既有的 fillDataGaps 中位數補值與 dataGaps 標示機制原封不動就能吃到它們，不必開特例。
+ */
+export interface ListingFeatures extends FengshuiEvidence {
   annualTemp: number | null
   summerTemp: number | null
   winterTemp: number | null

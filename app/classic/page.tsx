@@ -123,7 +123,7 @@ export default function Classic() {
           <span className="text-neutral-500">找到 {search.results.length} 筆</span>
           <span
             className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800"
-            title="價格、通勤與生活機能數量皆為模擬示範資料，非真實物件"
+            title="價格、通勤、生活機能數量與風水格局證據皆為模擬示範資料，非真實物件；系統並未真的辨識格局圖"
           >
             示範資料
           </span>

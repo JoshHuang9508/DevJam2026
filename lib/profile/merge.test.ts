@@ -35,6 +35,17 @@ describe('mergeProfile', () => {
     expect(out.hard.budgetMax).toBeUndefined()
   })
 
+  it('hard 欄位是 undefined 時視為「這次沒提到」，不移除既有條件', () => {
+    // zod 的 transform 回 undefined 時 key 仍留在物件上（avoidFengshui 收到一串認不得的
+    // 風水詞就是這種情形）。若把 undefined 也當成移除，使用者上一輪設好的硬條件會被無聲清掉。
+    const out = mergeProfile(
+      base({ hard: { avoidFengshui: ['throughDraft'], budgetMax: 2000 } }),
+      { hard: { avoidFengshui: undefined } },
+    )
+    expect(out.hard.avoidFengshui).toEqual(['throughDraft'])
+    expect(out.hard.budgetMax).toBe(2000)
+  })
+
   it('soft 偏好合併', () => {
     const out = mergeProfile(base({ soft: { prefersCool: true } }), { soft: { prefersQuiet: 1 } })
     expect(out.soft.prefersCool).toBe(true)
