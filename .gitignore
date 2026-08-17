@@ -1,0 +1,12 @@
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+data/*.db
+data/cache/
+.env.local
+test-results/
+playwright-report/
+.superpowers/
+AGENTS.md
+CLAUDE.md

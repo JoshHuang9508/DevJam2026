@@ -6,7 +6,13 @@
 
 **Architecture:** Next.js 15 全端單體。Gemini 只負責「自然語言 → SearchProfile 變動量」與「結果 → 人話解釋」；排序由 `lib/scoring` 的純函式完成，可單元測試、毫秒回應、權重面板拖動時不呼叫 LLM。所有物件特徵在資料層預先算好，線上查詢零外部 API。
 
-**Tech Stack:** Next.js 15 (App Router) / React 19 / TypeScript strict / Tailwind CSS v4 / MapLibre GL JS / SQLite + Drizzle ORM / `@google/genai` / Zod / Vitest / Playwright / pnpm
+**Tech Stack:** Next.js (App Router) / React 19 / TypeScript strict / Tailwind CSS v4 / MapLibre GL JS / SQLite + Drizzle ORM / `@google/genai` / Zod / Vitest / Playwright / pnpm
+
+**實際解析到的版本**（Task 1 安裝，`next build` 與 `tsc` 皆通過）：`next@16.3.1`、`typescript@7.0.2`、
+`react@19.2.8`、`zod@4.4.3`、`drizzle-orm@0.45.2`、`vitest@4.1.10`、`maplibre-gl@6.3.0`、
+`@google/genai@2.17.1`、`better-sqlite3@13.0.3`。本計畫的程式碼是對著較早的主版本寫的，
+因此 Task 5（maplibre-gl v6）與 Task 7（`@google/genai` v2）的實作者**必須先讀 `node_modules`
+裡該套件的實際型別定義**再抄寫，API 有搬動就調整呼叫端並在報告中列為 concern；行為不得改變。
 
 **Spec:** `docs/superpowers/specs/2026-08-17-taiwan-housing-agent-design.md`
 
@@ -18,10 +24,13 @@
 - TypeScript `strict: true`，不得使用 `any` 規避型別錯誤
 - `GEMINI_API_KEY` 只能在 Route Handler（server 端）讀取；任何 `'use client'` 檔案不得引用
 - Gemini model ID 由 `GEMINI_MODEL` 指定，預設 `gemini-3.7-flash`。**禁止**使用 `gemini-2.5-flash`（2026-10-16 停用）
-- 六個權重維度的鍵固定為：`price` `weather` `location` `amenities` `space` `quality`
+- 七個權重維度的鍵固定為：`price` `value` `weather` `location` `amenities` `space` `quality`
+  （`price` = 跨區絕對價格水準，`value` = 同區性價比。Task 4B 前只有六個，缺 `value`）
 - 種子資料必須是**確定性**的（固定 seed 的 LCG，不得用 `Math.random()`），否則測試無法重現
 - 所有面向使用者的文字為繁體中文
-- 每個 task 結束時 `pnpm test` 必須全綠才可 commit
+- 每個 task 結束時 `pnpm test` 必須全綠，且 `pnpm exec tsc --noEmit` 必須無錯，兩者都通過才可 commit。
+  **`vitest` 不做型別檢查** —— 測試檔裡的型別錯誤（例如 `breakdown` 少一個維度鍵）在 `pnpm test`
+  完全不會出現，只會在 build 時才炸。只跑測試不足以證明程式碼正確。
 
 **與 spec §3.3 的目錄差異**（實作時以本計畫為準）：spec 只列了主要目錄，本計畫另外拆出
 `lib/profile/`（profile 合併與 Zod 驗證，被 agent 與 API 共用）、`lib/client/`（純前端工具，
@@ -70,10 +79,27 @@ cat > package.json <<'EOF'
   }
 }
 EOF
-pnpm add next react react-dom drizzle-orm better-sqlite3 zod @google/genai maplibre-gl @radix-ui/react-slider
+pnpm add next react react-dom drizzle-orm better-sqlite3 zod @google/genai maplibre-gl \
+  @radix-ui/react-slider server-only
 pnpm add -D typescript @types/node @types/react @types/react-dom @types/better-sqlite3 \
   tailwindcss @tailwindcss/postcss postcss drizzle-kit tsx vitest @playwright/test
 ```
+
+pnpm 10 起預設封鎖依賴的安裝腳本，`better-sqlite3` 的原生模組會因此建不起來，
+後續每個 task 都會在 `loadPool` 掛掉。用 repo 內的 `pnpm-workspace.yaml` 開白名單 ——
+**不可**改用全域設定或 `dangerouslyAllowAllBuilds`，那會對整台機器關掉供應鏈防護。
+
+`pnpm-workspace.yaml`:
+```yaml
+allowBuilds:
+  '@google/genai': true
+  better-sqlite3: true
+  esbuild: true
+  protobufjs: true
+```
+
+`allowBuilds` 是 pnpm 11 的設定名（map 形式，值為 boolean）。
+`onlyBuiltDependencies`、`neverBuiltDependencies` 等舊鍵在 v11 已移除，寫了不會生效也不會報錯。
 
 - [ ] **Step 2: 建立設定檔**
 
@@ -92,7 +118,7 @@ pnpm add -D typescript @types/node @types/react @types/react-dom @types/better-s
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./*"] }
@@ -129,7 +155,12 @@ export default defineConfig({
     include: ['lib/**/*.test.ts'],
   },
   resolve: {
-    alias: { '@': path.resolve(process.cwd()) },
+    alias: {
+      '@': path.resolve(process.cwd()),
+      // server-only 在 Next 的 server bundle 外會直接拋錯，
+      // 換成空模組才能對 lib/db/client.ts 寫測試
+      'server-only': path.resolve(process.cwd(), 'lib/test-utils/server-only-stub.ts'),
+    },
   },
 })
 ```
@@ -146,15 +177,18 @@ export default {
 } satisfies Config
 ```
 
-`.gitignore`:
+`.gitignore`（`.superpowers/` 已存在於 repo，必須保留）:
 ```
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 data/*.db
 data/cache/
 .env.local
 test-results/
 playwright-report/
+.superpowers/
 ```
 
 `.env.example`:
@@ -570,8 +604,9 @@ let cached: ReturnType<typeof drizzle> | null = null
 
 export function getDb() {
   if (!cached) {
+    // 唯讀連線不得設定 journal_mode —— 那是寫入操作，會拋
+    // SqliteError: attempt to write a readonly database。讀取端沿用寫入端建立的模式即可。
     const sqlite = new Database(DB_PATH, { readonly: true, fileMustExist: true })
-    sqlite.pragma('journal_mode = WAL')
     cached = drizzle(sqlite, { schema })
   }
   return cached
@@ -849,7 +884,62 @@ sqlite3 data/app.db "SELECT mode, COUNT(*) FROM listings GROUP BY mode;"
 ```
 Expected: `rent|180` 與 `sale|180`
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 14: 為 `loadPool` 寫端對端測試**
+
+`getDb()` / `loadPool()` 是九個後續 task 共用的介面，卻是本 task 唯一沒有測試覆蓋的匯出。
+補上一個直接打真實種子資料庫的測試。
+
+`lib/test-utils/server-only-stub.ts`:
+```ts
+// vitest 用的空模組。正式執行時 Next 會解析到真正的 server-only 套件。
+export {}
+```
+
+`lib/db/client.test.ts`:
+```ts
+import { existsSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { loadPool } from './client'
+
+const DB_PATH = './data/app.db'
+
+describe('loadPool', () => {
+  it('資料庫存在（未建立請先跑 pnpm db:push && pnpm db:seed）', () => {
+    expect(existsSync(DB_PATH)).toBe(true)
+  })
+
+  it('載入買賣物件並附上特徵', () => {
+    const pool = loadPool('sale')
+    expect(pool).toHaveLength(180)
+    expect(pool.every((l) => l.mode === 'sale')).toBe(true)
+    const first = pool[0]
+    expect(first.features).toBeDefined()
+    expect(typeof first.features.summerTemp).toBe('number')
+    expect(typeof first.features.pricePercentile).toBe('number')
+    // listing_features 的主鍵欄位不應洩漏進 features
+    expect(first.features).not.toHaveProperty('listingId')
+  })
+
+  it('載入租賃物件', () => {
+    expect(loadPool('rent')).toHaveLength(180)
+  })
+
+  it('依城市篩選', () => {
+    const pool = loadPool('sale', ['臺北市'])
+    expect(pool.length).toBeGreaterThan(0)
+    expect(pool.every((l) => l.city === '臺北市')).toBe(true)
+  })
+
+  it('城市不存在時回空陣列而非拋錯', () => {
+    expect(loadPool('sale', ['不存在市'])).toEqual([])
+  })
+})
+```
+
+Run: `pnpm test lib/db/client.test.ts`
+Expected: PASS（5 個測試）
+
+- [ ] **Step 15: Commit**
 
 ```bash
 git add -A
@@ -869,7 +959,8 @@ git commit -m "feat: 專案骨架、型別、SQLite schema 與確定性種子資
 - Consumes: Task 1 的 `ListingWithFeatures`、`ListingFeatures`、`SearchProfile`、`WeightKey`、`WEIGHT_KEYS`、`lib/geo.ts` 的 `estimateCommuteMinutes`
 - Produces:
   - `minMaxNormalize(values: number[]): number[]`
-  - `FilledListing { listing: ListingWithFeatures; features: ListingFeatures; dataGaps: string[] }`
+  - `FilledListing { listing: ListingWithFeatures; features: { [K in FeatureKey]: number }; dataGaps: string[] }`
+    （`features` 是**剝掉 null 的映射型別**，不是 `ListingFeatures` —— 填補後保證每個欄位都是 number）
   - `fillDataGaps(pool: ListingWithFeatures[]): FilledListing[]`
   - `DIMENSIONS: Record<WeightKey, (f: FilledListing, p: SearchProfile) => number>`（回傳值恆為「越高越好」的原始分數）
   - `makeListing(overrides?): ListingWithFeatures`、`makeFeatures(overrides?): ListingFeatures`
@@ -897,7 +988,13 @@ export function makeFeatures(o: Partial<ListingFeatures> = {}): ListingFeatures 
   }
 }
 
-export function makeListing(o: Partial<ListingWithFeatures> = {}): ListingWithFeatures {
+// features 必須是「深層 partial」——測試都只覆寫其中幾個欄位。
+// 直接用 Partial<ListingWithFeatures> 在 strict 下會要求 features 是完整物件。
+export type ListingOverride = Partial<Omit<ListingWithFeatures, 'features'>> & {
+  features?: Partial<ListingFeatures>
+}
+
+export function makeListing(o: ListingOverride = {}): ListingWithFeatures {
   const { features, ...rest } = o
   return {
     id: 'L1', source: 'test', sourceId: 'L1', mode: 'sale',
@@ -1454,6 +1551,7 @@ import { describe, expect, it } from 'vitest'
 import { applyHardFilter } from './filter'
 import { makeListing } from '@/lib/test-utils/factory'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -1793,6 +1891,7 @@ import { describe, expect, it } from 'vitest'
 import { rankWithRelaxation } from './relax'
 import { makeListing } from '@/lib/test-utils/factory'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -2409,6 +2508,212 @@ git commit -m "feat(api): profile 合併與驗證，加上 /api/rank 排序端�
 
 ---
 
+### Task 4B: 把價格拆成 price（跨區可負擔）與 value（同區性價比）
+
+**為什麼**：`pricePercentile` 是在「同 mode + 同城市 + 同行政區 + 同建物型態」內算的，所以每個行政區的百分位
+都必然跑滿 0 到 1。實測種子資料：大安區單價 100.4 萬/坪的物件與土城區 30.9 萬/坪的物件，`1 - pricePercentile`
+都是滿分 1.0 —— 單價差 3.2 倍、價格分數相同。原本的 `price` 維度**對跨區可負擔性完全失明**，而「我該住哪一區」
+正是本產品的核心問題。拆成兩個獨立維度後，使用者可以分別表達「我要便宜的區」與「我要划算的物件」。
+
+**Files:**
+- Modify: `lib/types/profile.ts`（`WeightKey`、`WEIGHT_KEYS`、`WEIGHT_LABELS`、`DEFAULT_PROFILE`）
+- Modify: `lib/scoring/dimensions.ts`（改寫 `price`、新增 `value`、`DIMENSIONS`）
+- Modify: `lib/scoring/dimensions.test.ts`
+- Modify: `lib/scoring/index.test.ts`（fixture 需要不同的 `unitPrice`；等權值 1/6 → 1/7）
+- Modify: `lib/profile/schema.ts`（兩份 weights schema 各加一鍵）
+
+**Interfaces:**
+- Consumes: Task 1–4 的既有匯出
+- Produces: `WeightKey` 增為七鍵，順序固定 `price` `value` `weather` `location` `amenities` `space` `quality`
+
+- [ ] **Step 1: 擴充型別**
+
+`lib/types/profile.ts` — `WeightKey` 加入 `'value'`，三個常數同步：
+
+```ts
+export type WeightKey =
+  | 'price'
+  | 'value'
+  | 'weather'
+  | 'location'
+  | 'amenities'
+  | 'space'
+  | 'quality'
+
+export const WEIGHT_KEYS: readonly WeightKey[] = [
+  'price', 'value', 'weather', 'location', 'amenities', 'space', 'quality',
+] as const
+
+export const WEIGHT_LABELS: Record<WeightKey, string> = {
+  price: '房價可負擔',
+  value: '同區性價比',
+  weather: '天氣環境',
+  location: '地理位置',
+  amenities: '生活機能',
+  space: '坪數格局',
+  quality: '屋況條件',
+}
+```
+
+`DEFAULT_PROFILE.weights` 加上 `value: 50`（七項皆 50）。
+
+- [ ] **Step 2: 先寫失敗測試**
+
+`lib/scoring/dimensions.test.ts` — 把原本的 `describe('DIMENSIONS.price')` 整段換成下面兩段。
+第二段的兩個測試是這次拆分的核心證據：同一組數字，`price` 必須分得出高下，`value` 必須分不出。
+
+```ts
+describe('DIMENSIONS.price', () => {
+  it('單價越低分數越高', () => {
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), profile())
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), profile())
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('跨行政區可比：貴區裡最便宜的仍輸給便宜區裡最便宜的', () => {
+    const daanCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tuchengCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(tuchengCheapest).toBeGreaterThan(daanCheapest)
+  })
+
+  it('不受同區百分位影響', () => {
+    const a = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 0 } })), profile())
+    const b = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 1 } })), profile())
+    expect(a).toBe(b)
+  })
+
+  it('有 budgetMax 也不改變公式（單調性不變量）', () => {
+    const p = profile({ hard: { budgetMax: 3000 } })
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), p)
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), p)
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+})
+
+describe('DIMENSIONS.value', () => {
+  it('同區百分位越低分數越高', () => {
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), profile())
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), profile())
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('與絕對單價無關：兩區各自墊底的物件得分相同', () => {
+    const daan = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tucheng = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(daan).toBe(tucheng)
+  })
+
+  it('有 budgetMax 也不改變公式（單調性不變量）', () => {
+    const p = profile({ hard: { budgetMax: 3000 } })
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), p)
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), p)
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+})
+```
+
+同檔案最後的完整性測試，鍵陣列補上 `'value'`：
+```ts
+    for (const key of ['price', 'value', 'weather', 'location', 'amenities', 'space', 'quality'] as const) {
+```
+
+- [ ] **Step 3: 執行測試確認失敗**
+
+Run: `pnpm test lib/scoring/dimensions.test.ts`
+Expected: FAIL — `DIMENSIONS.value is not a function`，以及 price 的跨區測試因為舊公式讀 `pricePercentile` 而失敗
+
+- [ ] **Step 4: 改寫維度**
+
+`lib/scoring/dimensions.ts` — 把原本的 `price` 換成下面兩個函式：
+
+```ts
+/**
+ * 房價可負擔：跨行政區的絕對單價水準。
+ * 回傳 -unitPrice，下游在候選池內 min-max 正規化後即「單價越低越高分」。
+ * 刻意用單價而非總價 —— 總價混入了坪數大小，單價才隔離出「這個地段多貴」；
+ * 總價上限由 hard.budgetMax 這個硬條件處理，不需要在分數裡重複表達。
+ */
+const price: DimensionFn = (f) => -f.listing.unitPrice
+
+/**
+ * 同區性價比：同區同型態內相對便宜的程度。
+ * 恆為 1 - pricePercentile，不因 budgetMax 改變曲線 ——
+ * 「貼近預算上限為佳」會破壞「拉高權重 → 便宜物件排名上升」的單調性不變量。
+ * 這個維度**刻意**對跨區的絕對價差失明，那是 price 的職責。
+ */
+const value: DimensionFn = (f) => 1 - clamp01(f.features.pricePercentile)
+```
+
+`DIMENSIONS` 常數加入 `value`：
+```ts
+export const DIMENSIONS: Record<WeightKey, DimensionFn> = {
+  price, value, weather, location, amenities, space, quality,
+}
+```
+
+- [ ] **Step 5: 執行測試確認通過**
+
+Run: `pnpm test lib/scoring/dimensions.test.ts`
+Expected: PASS
+
+- [ ] **Step 6: 修正排序測試的 fixture**
+
+`lib/scoring/index.test.ts` 的兩筆 fixture 目前沒設 `unitPrice`，都會拿到工廠預設值 80，
+使 `price` 維度分不出高下、單調性測試失效。各補一個 `unitPrice`：
+
+- `cheapPoorAmenities` 加 `unitPrice: 31`
+- `pricyRichAmenities` 加 `unitPrice: 100`
+
+`normalizeWeights` 的全零測試，物件字面值補 `value: 0`，且期望值由 `1 / 6` 改為 `1 / 7`：
+```ts
+  it('全為 0 時退回等權', () => {
+    const w = normalizeWeights({ price: 0, value: 0, weather: 0, location: 0, amenities: 0, space: 0, quality: 0 })
+    for (const k of WEIGHT_KEYS) expect(w[k]).toBeCloseTo(1 / 7, 10)
+  })
+```
+
+其餘測試用 `{ ...DEFAULT_PROFILE.weights, ... }` 展開，會自動跟著擴充，不需改動。
+
+- [ ] **Step 7: 補上 schema 的第七鍵**
+
+`lib/profile/schema.ts` 有兩份各自列出權重鍵的 schema（Task 4 審查已標記這個重複）。
+**兩份都要加 `value`** —— 只改一份會讓絕對 profile 與增量 delta 的行為不一致。
+
+- [ ] **Step 8: 全套驗證**
+
+```bash
+pnpm test
+pnpm exec tsc --noEmit
+```
+Expected: 全綠。任何測試若因為權重鍵數量而失敗，是該測試需要補鍵，不是把 `value` 拿掉。
+
+- [ ] **Step 9: 用真實資料確認缺陷已修復**
+
+```bash
+node -e "
+const D=require('better-sqlite3');const db=new D('./data/app.db',{readonly:true});
+const rows=db.prepare(\"SELECT l.district,l.unit_price u,f.price_percentile p FROM listings l JOIN listing_features f ON l.id=f.listing_id WHERE l.mode='sale' AND f.price_percentile=0\").all();
+const daan=rows.find(r=>r.district==='大安區'), tu=rows.find(r=>r.district==='土城區');
+console.log('大安墊底單價',daan.u,'土城墊底單價',tu.u);
+console.log('舊 price(=1-pct) 兩者相同:', (1-daan.p)===(1-tu.p));
+console.log('新 price(=-unitPrice) 土城較高:', (-tu.u) > (-daan.u));
+db.close();"
+```
+Expected: 最後兩行分別為 `true` 與 `true`
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "feat(scoring): 拆分 price（跨區可負擔）與 value（同區性價比）"
+```
+
+---
+
 ### Task 5: 結果視圖 — 地圖與物件卡片
 
 **Files:**
@@ -2628,7 +2933,14 @@ export const DEFAULT_ZOOM = 11
 'use client'
 
 import { useEffect, useRef } from 'react'
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl'
+// maplibre-gl v6 移除了 default export，只能具名匯入，否則 Turbopack build 會失敗
+import {
+  Map as MapLibreMapCtor,
+  NavigationControl,
+  LngLatBounds,
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+} from 'maplibre-gl'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_CENTER, DEFAULT_ZOOM, OSM_RASTER_STYLE } from './mapStyle'
 
@@ -2641,11 +2953,14 @@ interface Props {
   onSelect: (id: string) => void
 }
 
+// setFeatureState 只認 GeoJSON Feature 頂層的 id（number | string），不是 properties 裡的欄位。
+// 這裡以 results 陣列的 index 作為數值型 feature id，hover 時再用同一個 index 對應回去。
 function toGeoJson(results: ScoredListing[]) {
   return {
     type: 'FeatureCollection' as const,
-    features: results.map((r) => ({
+    features: results.map((r, i) => ({
       type: 'Feature' as const,
+      id: i,
       geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
       properties: { id: r.id, score: r.score, title: r.title },
     })),
@@ -2660,14 +2975,14 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
-    const map = new maplibregl.Map({
+    const map = new MapLibreMapCtor({
       container: containerRef.current,
       style: OSM_RASTER_STYLE,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
 
     // 圖磚載入失敗時降級為灰底，點位仍照常顯示
     map.on('error', (e) => { console.warn('[MapView] 地圖錯誤', e.error) })
@@ -2753,7 +3068,7 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
       if (!source) return
       source.setData(toGeoJson(results))
       if (results.length === 0) return
-      const bounds = new maplibregl.LngLatBounds(
+      const bounds = new LngLatBounds(
         [results[0].lng, results[0].lat],
         [results[0].lng, results[0].lat],
       )
@@ -2769,19 +3084,17 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    for (const r of results) {
+    results.forEach((r, i) => {
       map.setFeatureState(
-        { source: SOURCE_ID, id: r.id },
+        { source: SOURCE_ID, id: i },
         { hovered: r.id === hoveredId },
       )
-    }
+    })
   }, [hoveredId, results])
 
   return <div ref={containerRef} className="h-full w-full bg-neutral-200" data-testid="map" />
 }
 ```
-
-> **注意**：`setFeatureState` 需要 feature 有數值型 `id`。若 hover 放大未生效，改為在 `toGeoJson` 為每個 feature 加上 `id: index`（number），並改用 index 對應。此為已知的 MapLibre 限制，實作時以實際行為為準。
 
 - [ ] **Step 8: 實作 breakdown 條狀圖**
 
@@ -2968,14 +3281,14 @@ pnpm dev
 在瀏覽器開 `http://localhost:3000`，確認：
 - 地圖載入且顯示台北一帶
 - 地圖上有彩色點位與 cluster
-- 下方卡片列有物件，含六維條狀圖
+- 下方卡片列有物件，含七維條狀圖
 - 滑鼠移到卡片上，對應的地圖點位放大
 
 - [ ] **Step 12: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(ui): MapLibre 地圖、物件卡片與六維 breakdown 條狀圖"
+git commit -m "feat(ui): MapLibre 地圖、物件卡片與七維 breakdown 條狀圖"
 ```
 
 ---
@@ -3121,13 +3434,22 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                 min={0}
                 max={100}
                 step={1}
-                aria-label={WEIGHT_LABELS[key]}
                 onValueChange={([v]) => setWeight(key, v)}
               >
                 <Slider.Track className="relative h-1 w-full grow rounded-full bg-neutral-200">
                   <Slider.Range className="absolute h-full rounded-full bg-blue-600" />
                 </Slider.Track>
-                <Slider.Thumb className="block h-3.5 w-3.5 rounded-full border-2 border-blue-600 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400" />
+                {/*
+                  aria-label 必須放在 Thumb 上，不能放 Root。
+                  Radix 只有 Thumb 帶 role="slider"，而且它只讀自己的 props，
+                  不會從 Root 繼承；單一 thumb 時內建的 getLabel fallback 也回傳 undefined。
+                  放錯位置 → 七個 slider 完全沒有無障礙名稱 → e2e 的
+                  getByRole('slider', { name }) 一個都選不到。
+                */}
+                <Slider.Thumb
+                  aria-label={WEIGHT_LABELS[key]}
+                  className="block h-3.5 w-3.5 rounded-full border-2 border-blue-600 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                />
               </Slider.Root>
             </li>
           )
@@ -3248,9 +3570,9 @@ export default function Home() {
 pnpm dev
 ```
 確認：
-- 拖動「房屋價位」到 100、其餘拉低 → 卡片重排為單價較低的物件，約 200ms 內完成
+- 拖動「房價可負擔」到 100、其餘拉低 → 卡片重排為單價較低的物件，約 200ms 內完成
 - 切到「租房」→ 結果換成租賃物件，價格顯示為「元/月」
-- 按「重設」→ 六條回到 50
+- 按「重設」→ 七條回到 50
 
 - [ ] **Step 9: Commit**
 
@@ -3275,7 +3597,8 @@ git commit -m "feat(ui): 權重面板即時重排與買賣／租賃切換"
   - `ChatMessage { role: 'user' | 'assistant'; content: string }`
   - `UPDATE_PROFILE_DECLARATION`（Gemini function declaration）
   - `parseFunctionCall(args: unknown): ProfileDelta`（純函式）
-  - `buildContents(messages: ChatMessage[], profile: SearchProfile)`（純函式）
+  - `buildContents(messages: ChatMessage[]): Content[]`（純函式，只放真實對話）
+  - `buildSystemInstruction(profile: SearchProfile): string`（純函式，system prompt + 條件現況）
   - `extractDelta(messages, profile): Promise<ProfileDelta>`（失敗回 `{}`，不拋錯）
   - `buildExplainPrompt(profile, results, relaxations): string`（純函式）
   - `streamExplanation(prompt): AsyncIterable<string>`
@@ -3309,8 +3632,9 @@ export const EXTRACT_SYSTEM_PROMPT = `你是台灣房屋選址助理的「條件
 3. 沒講的絕不編造。使用者沒提到的偏好一律不填。
 4. 單位要正確。買賣的 budgetMax 單位是「萬元總價」（1500 萬 → 1500）；租賃的 budgetMax 單位是「元／月」（2 萬 → 20000）。坪數單位是坪，距離單位是公尺。
 
-六個權重維度的意義：
-- price 房屋價位（相對同區同型態越便宜越高分）
+七個權重維度的意義：
+- price 房價可負擔（跨行政區的絕對單價水準，越低越高分）
+- value 同區性價比（同區同型態內相對越便宜越高分）
 - weather 天氣環境（溫度、降雨、濕度、空氣品質）
 - location 地理位置（離軌道運輸的距離、到通勤錨點的時間）
 - amenities 生活機能（超商、超市、公園、醫院、學校、餐飲的密度）
@@ -3358,6 +3682,7 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
         description: '各維度權重的增減，範圍 -100 到 100，一般用 10 到 30',
         properties: {
           price: { type: Type.NUMBER },
+          value: { type: Type.NUMBER },
           weather: { type: Type.NUMBER },
           location: { type: Type.NUMBER },
           amenities: { type: Type.NUMBER },
@@ -3417,8 +3742,9 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
 `lib/agent/extract.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { buildContents, parseFunctionCall } from './extract'
+import { buildContents, buildSystemInstruction, parseFunctionCall } from './extract'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -3468,42 +3794,66 @@ describe('parseFunctionCall', () => {
 
 describe('buildContents', () => {
   it('把對話轉成 Gemini 的 contents 格式', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '我想找台北的房子' }],
-      profile(),
-    )
+    const contents = buildContents([{ role: 'user', content: '我想找台北的房子' }])
     expect(contents.at(-1)?.role).toBe('user')
     expect(JSON.stringify(contents)).toContain('我想找台北的房子')
   })
 
   it('assistant 角色轉為 model', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '你好' }, { role: 'assistant', content: '哈囉' }, { role: 'user', content: '繼續' }],
-      profile(),
-    )
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '繼續' },
+    ])
     expect(contents[1].role).toBe('model')
   })
 
+  it('最後一則永遠是使用者的話，不是合成的脈絡', () => {
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '我要三房' },
+    ])
+    expect(contents.at(-1)?.role).toBe('user')
+    expect(JSON.stringify(contents.at(-1))).toContain('我要三房')
+  })
+
   it('只保留最近 6 輪對話', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({
-      role: (i % 2 === 0 ? 'user' : 'assistant') as const,
+    const many: ChatMessage[] = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
       content: `訊息${i}`,
     }))
-    const contents = buildContents(many, profile())
-    expect(contents.length).toBeLessThanOrEqual(13) // 12 則對話 + 1 則現況說明
+    const contents = buildContents(many)
+    expect(contents.length).toBeLessThanOrEqual(12)
     expect(JSON.stringify(contents)).not.toContain('訊息0')
   })
 
-  it('把目前的 profile 現況帶進去，讓模型知道要做增量', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '再便宜一點' }],
-      profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }),
-    )
-    expect(JSON.stringify(contents)).toContain('80')
+  it('contents 不含 profile 現況——那是 system instruction 的職責', () => {
+    const contents = buildContents([{ role: 'user', content: '再便宜一點' }])
+    expect(JSON.stringify(contents)).not.toContain('目前條件現況')
   })
 
-  it('空對話仍回傳含現況的 contents', () => {
-    expect(buildContents([], profile()).length).toBeGreaterThan(0)
+  it('空對話回空陣列', () => {
+    expect(buildContents([])).toEqual([])
+  })
+})
+
+describe('buildSystemInstruction', () => {
+  it('包含四條硬規則', () => {
+    const s = buildSystemInstruction(profile())
+    expect(s).toContain('增量，不重寫')
+    expect(s).toContain('hard 條件要保守')
+  })
+
+  it('帶入目前的權重，讓模型知道要做增量', () => {
+    const s = buildSystemInstruction(profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }))
+    expect(s).toContain('目前條件現況')
+    expect(s).toContain('80')
+  })
+
+  it('帶入既有的 hard 條件', () => {
+    const s = buildSystemInstruction(profile({ hard: { budgetMax: 1500 } }))
+    expect(s).toContain('1500')
   })
 })
 ```
@@ -3557,26 +3907,32 @@ export function parseFunctionCall(args: unknown): ProfileDelta {
   return parsed.success ? (parsed.data as ProfileDelta) : {}
 }
 
-export function buildContents(messages: ChatMessage[], profile: SearchProfile): Content[] {
-  const recent = messages.slice(-MAX_TURNS * 2)
-  const state: Content = {
-    role: 'user',
-    parts: [{
-      text: `［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］\n${JSON.stringify({
-        mode: profile.mode,
-        weights: profile.weights,
-        hard: profile.hard,
-        soft: profile.soft,
-      })}`,
-    }],
-  }
+/**
+ * 目前的條件現況接在 system instruction 之後，**不進 contents**。
+ * 它是脈絡，不是任何人說過的話：放進對話序列的開頭會污染第一輪，
+ * 放結尾會讓模型最後看到的是一坨 JSON 而不是使用者的請求。
+ * 兩者都會讓萃取錨定到錯的東西，所以它屬於 system 層。
+ */
+export function buildSystemInstruction(profile: SearchProfile): string {
   return [
-    state,
-    ...recent.map((m): Content => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
-  ]
+    EXTRACT_SYSTEM_PROMPT,
+    '',
+    '［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］',
+    JSON.stringify({
+      mode: profile.mode,
+      weights: profile.weights,
+      hard: profile.hard,
+      soft: profile.soft,
+    }),
+  ].join('\n')
+}
+
+/** contents 只放真實對話，維持 user/model 交替，最後一則是使用者的話 */
+export function buildContents(messages: ChatMessage[]): Content[] {
+  return messages.slice(-MAX_TURNS * 2).map((m): Content => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
 }
 
 /** 呼叫 Gemini 萃取變動量。任何失敗都回空 delta，讓上層沿用原條件照樣排序。 */
@@ -3584,12 +3940,14 @@ export async function extractDelta(
   messages: ChatMessage[],
   profile: SearchProfile,
 ): Promise<ProfileDelta> {
+  // 沒有對話就沒有東西可萃取，直接省下一次 API 呼叫
+  if (messages.length === 0) return {}
   try {
     const response = await getGenAI().models.generateContent({
       model: getModel(),
-      contents: buildContents(messages, profile),
+      contents: buildContents(messages),
       config: {
-        systemInstruction: EXTRACT_SYSTEM_PROMPT,
+        systemInstruction: buildSystemInstruction(profile),
         temperature: 0,
         tools: [{ functionDeclarations: [UPDATE_PROFILE_DECLARATION] }],
         toolConfig: {
@@ -4163,6 +4521,9 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
   const [streaming, setStreaming] = useState(false)
   const [highlighted, setHighlighted] = useState<WeightHighlights>({})
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 記下對話路徑套用的那個 profile 物件。SSE 的 results 事件已經連同排序結果一起回來了，
+  // 主畫面靠比對這個參考來跳過一次多餘的 /api/rank。
+  const appliedByChat = useRef<SearchProfile | null>(null)
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -4197,6 +4558,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
         for (const e of events) {
           if (e.event === 'profile') {
             const next = e.data as SearchProfile
+            appliedByChat.current = next
             search.setProfile(next)
             const diff = diffWeights(before, next)
             if (Object.keys(diff).length > 0) {
@@ -4228,7 +4590,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
     }
   }, [messages, search, streaming])
 
-  return { messages, streaming, send, highlighted }
+  return { messages, streaming, send, highlighted, appliedByChat }
 }
 ```
 
@@ -4418,11 +4780,28 @@ export default function Home() {
   const chat = useChat(search)
   const [started, setStarted] = useState(false)
 
-  // 開始對話後，profile 的任何變動（含 slider 拖動）都在 debounce 後重新排序。
-  // 此路徑不呼叫 Gemini — 這是「手動調權重」的第二條路徑。
+  // 手動調權重的第二條路徑：profile 變動後 debounce 重排，不呼叫 Gemini。
+  //
+  // 依賴陣列**只能**放 search.profile。放進 chat.streaming 或 started 都會產生
+  // 多餘的 /api/rank：
+  //
+  //   chat.streaming — 串流結束時 true→false 本身就重排計時器，200ms 後守衛
+  //     通過，但那份 profile 的排序結果早就由 SSE 的 results 事件送回來了。
+  //   started — 點下範例 chip 那一刻 false→true 同樣重排計時器。這顆計時器與
+  //     /api/chat 的 SSE 回合是兩條獨立時間線在賽跑：串流比 200ms 快時
+  //     （無 API key 的 fallback 正是如此），計時器在 profile 事件把
+  //     appliedByChat 設好之前就到期，此時 search.profile 還是舊值、
+  //     appliedByChat.current 還是 null，兩者必然不相等，照樣多打一次。
+  //
+  // 兩者都仍在 closure 內讀取最新值，只是不再觸發重新排程。
+  // 對話路徑套用的 profile 則靠物件參考比對直接跳過。
   useDebouncedEffect(
-    () => { if (started && !chat.streaming) void search.rank(search.profile) },
-    [search.profile, started, chat.streaming],
+    () => {
+      if (!started) return
+      if (search.profile === chat.appliedByChat.current) return
+      void search.rank(search.profile)
+    },
+    [search.profile],
     RANK_DEBOUNCE_MS,
   )
 
@@ -4595,7 +4974,10 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    // 只在本機重用既有伺服器。無條件 true 會讓測試靜默地對著 port 3000 上
+    // 任何殘留行程跑——陳舊的、別的專案的、上一個 task 漏關的——而不是待測程式碼，
+    // 且 Playwright 只會關閉自己啟動的伺服器，那個殘留的會繼續留著。
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
 })
@@ -4641,13 +5023,13 @@ test('拖動權重會改變結果順序', async ({ page }) => {
 
   const firstBefore = await page.getByTestId('listing-card').first().innerText()
 
-  // 把「房屋價位」拉到最高：聚焦該 slider 後用 End 鍵
-  const priceSlider = page.getByRole('slider', { name: '房屋價位' })
+  // 把「房價可負擔」拉到最高：聚焦該 slider 後用 End 鍵
+  const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
   await priceSlider.focus()
   await priceSlider.press('End')
 
   // 其餘維度拉到最低，放大排序差異
-  for (const label of ['天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
+  for (const label of ['同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
     const s = page.getByRole('slider', { name: label })
     await s.focus()
     await s.press('Home')
@@ -4659,19 +5041,45 @@ test('拖動權重會改變結果順序', async ({ page }) => {
   }).toPass()
 })
 
-test('權重面板的重設會把六個維度回到 50', async ({ page }) => {
+test('權重面板的重設會把七個維度回到 50', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('composer-input').fill('台北的房子')
   await page.getByTestId('composer-submit').click()
   await expect(page.getByTestId('weight-panel')).toBeVisible()
 
-  const priceSlider = page.getByRole('slider', { name: '房屋價位' })
+  const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
   await priceSlider.focus()
   await priceSlider.press('End')
   await expect(priceSlider).toHaveAttribute('aria-valuenow', '100')
 
   await page.getByRole('button', { name: '重設' }).click()
-  await expect(priceSlider).toHaveAttribute('aria-valuenow', '50')
+
+  // 七個維度全部回到 50，不只被拖過的那一條
+  for (const label of ['房價可負擔', '同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
+    await expect(page.getByRole('slider', { name: label })).toHaveAttribute('aria-valuenow', '50')
+  }
+})
+
+test('切換到租房後價格以元/月顯示', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '租房' }).click()
+  await page.getByTestId('composer-input').fill('台北的房子')
+  await page.getByTestId('composer-submit').click()
+
+  await expect(page.getByTestId('listing-card').first()).toContainText('元/月')
+})
+
+test('卡片 hover 會標示為選中狀態', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('composer-input').fill('台北的房子')
+  await page.getByTestId('composer-submit').click()
+
+  const first = page.getByTestId('listing-card').first()
+  await expect(first).toBeVisible()
+  await expect(first).not.toHaveClass(/border-blue-500/)
+
+  await first.hover()
+  await expect(first).toHaveClass(/border-blue-500/)
 })
 
 test('手機版以分頁切換對話與結果', async ({ page }) => {
@@ -4695,6 +5103,11 @@ pnpm e2e
 Expected: 5 個測試全部 PASS
 
 若「拖動權重會改變結果順序」不穩定，先確認 `/api/rank` 的 debounce 是否生效；不得以放寬斷言的方式掩蓋問題。
+
+**hover 測試的已知限制**：`卡片 hover 會標示為選中狀態` 只驗證了「卡片 → 狀態 → 卡片」這條迴路。
+地圖那一側（marker 隨 `hoveredId` 放大）畫在 canvas 上，Playwright 無法直接斷言，
+只能靠讀程式碼確認 `toGeoJson` 寫入的 feature id 與 `setFeatureState` 讀的是同一個。
+這個限制是誠實記錄，不是待辦 —— 除非引入視覺回歸測試，否則無法自動化。
 
 - [ ] **Step 5: 加入整合測試指令**
 
@@ -4756,6 +5169,39 @@ Gemini 只負責兩件事：把自然語言轉成 `SearchProfile` 的變動量�
 示範資料涵蓋臺北市與新北市共 20 個行政區、360 筆物件，由 `scripts/seed.ts` 確定性產生。
 氣候值為中央氣象署測站氣候平均的近似值，POI 與距離為模擬值。
 真實資料抓取與 enrich pipeline 見計畫 B。
+
+## ⚠️ Gemini 路徑尚未經過品質驗證
+
+自動化測試涵蓋的是**提示詞組裝、工具輸出驗證、失敗降級**，全部是純函式，不呼叫 API。
+真正打 Gemini 的整合測試預設跳過，因為建置期間沒有 API 金鑰。
+
+也就是說，以下三件事目前**沒有任何證據支持**，需要你自己驗證：
+
+1. 使用者說一句話，條件是否被正確萃取（例如「1500 萬以內」→ `budgetMax: 1500`）
+2. 模糊說法是否正確地**不會**變成硬條件（「不要太貴」應提高 price 權重，而非設 `budgetMax`）
+3. 解釋文字是否真的講取捨、揭露放寬條件、以問句結尾
+
+無金鑰時系統仍完整運作 —— 排序照常、地圖照常、對話顯示降級文案 —— 但 agent 不會真的理解你說什麼。
+
+### 怎麼驗證
+
+```bash
+# 1. 填入金鑰
+echo 'GEMINI_API_KEY=你的金鑰' >> .env.local
+
+# 2. 跑萃取的整合測試（四個中文語句 fixture，會產生少量費用）
+RUN_LLM_TESTS=1 pnpm vitest run lib/agent/extract.integration.test.ts
+
+# 3. 實際對話
+pnpm dev
+```
+
+整合測試驗證的正是上面第 1、2 點。第 3 點需要人眼看 —— 送出
+「我在信義區上班，預算 1500 萬以內，想要安靜、生活機能好」，
+確認左側權重面板有維度閃爍並顯示 `50 → 70` 這樣的變化，且回覆有講取捨、結尾是問句。
+
+若萃取品質不佳，調整的地方是 `lib/agent/prompts.ts` 的 `EXTRACT_SYSTEM_PROMPT`，
+特別是四條硬規則中的第 2 條（hard 條件要保守）——那條是防止結果被濾成 0 筆的關鍵。
 ```
 
 - [ ] **Step 8: Commit**

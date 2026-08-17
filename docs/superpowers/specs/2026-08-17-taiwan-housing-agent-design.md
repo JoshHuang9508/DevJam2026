@@ -30,7 +30,7 @@
 
 | 層 | 選擇 | 理由 |
 | --- | --- | --- |
-| 框架 | Next.js 15 App Router + TypeScript | 前端、API、資料腳本同一 repo 同一語言；Route Handler 直接支援 SSE 串流 |
+| 框架 | Next.js App Router + TypeScript | 前端、API、資料腳本同一 repo 同一語言；Route Handler 直接支援 SSE 串流。版本不釘死，實作時取當下穩定版（2026-08 實際安裝為 16.3.1） |
 | UI | Tailwind CSS v4 + Radix UI primitives | 權重面板需要無障礙的 slider；直接用 Radix primitive（即 shadcn/ui 的底層），省去 shadcn CLI 的初始化與版本相依 |
 | 地圖 | MapLibre GL JS + OSM/Carto 免費 vector tile | 無 API token、內建 cluster、萬筆點位仍流暢 |
 | 資料庫 | SQLite（better-sqlite3）+ Drizzle ORM | demo 零維運；上線換 Turso/Postgres 僅換 driver |
@@ -134,7 +134,7 @@ lib/
     explain.ts              呼叫 #2 + 串流
   scoring/
     index.ts                score(profile, listings) → ScoredListing[]
-    dimensions.ts           六個維度的子分數函式
+    dimensions.ts           七個維度的子分數函式
     normalize.ts            候選池內 min-max 正規化
     relax.ts                0 筆時的條件放寬策略
   db/
@@ -250,7 +250,8 @@ distToRail        REAL
 type Mode = 'sale' | 'rent'
 
 type WeightKey =
-  | 'price'      // 房屋價位
+  | 'price'      // 房價可負擔：跨行政區的絕對價格水準
+  | 'value'      // 同區性價比：同區同型態內相對划算與否
   | 'weather'    // 天氣環境
   | 'location'   // 地理位置 / 交通
   | 'amenities'  // 生活機能
@@ -317,11 +318,22 @@ function score(profile: SearchProfile, pool: ListingWithFeatures[]): ScoredListi
 5. **多樣性 cap** — 同一行政區最多保留 5 筆
 6. **取 top 30**，附上 `breakdown`
 
-### 5.2 六個維度的子分數
+### 5.2 七個維度的子分數
 
 | 維度 | 計算方式 |
 | --- | --- |
-| `price` | `1 - pricePercentile`（同區同型態內越相對便宜越高分）。**恆為此式**，不因 `budgetMax` 改變曲線 — 「貼近預算上限為佳」的設計會與 §9 的單調性不變量衝突。「避免推出便宜的爛物件」由 `quality` 與 `space` 維度負責，超出預算則已由 hard filter 排除 |
+| `price` | 絕對價格水準：`-unitPrice`（候選池內 min-max 正規化後即「單價越低越高分」）。這是唯一能跨行政區比較可負擔性的維度 |
+| `value` | 同區性價比：`1 - pricePercentile`（同區同型態內越相對便宜越高分）。**恆為此式**，不因 `budgetMax` 改變曲線 — 「貼近預算上限為佳」的設計會與 §9 的單調性不變量衝突 |
+
+**為什麼價格要拆成兩個維度**：`pricePercentile` 是在「同 mode + 同城市 + 同行政區 + 同建物型態」內計算的，
+每個行政區的百分位都必然跑滿 0 到 1。實測種子資料：大安區單價 100.4 萬/坪的物件與土城區 30.9 萬/坪的物件，
+`1 - pricePercentile` 都是滿分 1.0。單靠這個式子，價格維度**對跨區的可負擔性完全失明** —— 使用者把價格權重
+拉到最高，得到的會是「以大安區標準算便宜」的昂貴物件，而本產品的核心問題正是「我該住哪一區」。
+`price` 負責跨區絕對水準，`value` 負責同區划算程度，兩者獨立可調。
+「避免推出便宜的爛物件」仍由 `quality` 與 `space` 負責，超出預算則由 hard filter 排除。
+
+`price` 用單價而非總價：總價混入了坪數大小，單價才隔離出「這個地段多貴」。
+使用者的總價上限由 `hard.budgetMax` 處理，不需要重複表達。
 | `weather` | `summerTemp`、`winterTemp`、`rainDays`、`humidity`、`aqiMean` 的加權舒適度；`soft.prefersCool` 提高夏季溫度項權重，`soft.prefersLowRain` 提高降雨日數項權重 |
 | `location` | `1 / (1 + distToMetro / 800)` 為基底；若有 `commuteAnchor`，改以到該錨點的估計通勤分鐘數為主項（同 4.2 的簡化模型，`maxMin` 作為軟性懲罰的轉折點，**不做硬性排除**）；無捷運城市改用 `distToTrain` 與 `distToBus` |
 | `amenities` | `log1p(POI 計數)` 的加權和。500m 權重高於 1km。各類別權重：超商、超市、公園、醫院、學校、餐飲 |
@@ -358,6 +370,18 @@ interface ScoredListing extends ListingWithFeatures {
 6. 全部清除，僅保留 `mode` 與 `cities`
 
 回傳 `relaxations: string[]` 說明放寬了什麼，agent 必須在回覆中明講。
+
+**`cities` 刻意永不放寬，這留下一個死路，必須由 UI 補救。**
+`loadPool(mode, hard.cities)` 在 `score()` 之前就已經依城市限制了候選池，
+所以在放寬階梯裡拿掉 `cities` 也救不回任何物件 —— 池子早就空了。
+城市比對是字串完全相等：種子資料用「臺北市」，模型若吐出更常見的「台北市」就是 0 筆。
+兩個必要的補救（§7.6）：
+
+1. **正規化**：schema 邊界統一「臺」與「台」，並擋掉不在六都清單內的城市名
+2. **逃生口**：UI 必須讓使用者看見並移除生效中的 hard 條件
+
+沒有這兩者，一個錯的城市名會讓工作階段永久卡在 0 筆 —— 使用者看不到是什麼條件濾光了結果，
+也沒有辦法拿掉它，而且它還會被寫進 localStorage 跨重載存活。
 
 ## 6. Agent 設計
 
@@ -448,16 +472,27 @@ model ID 由環境變數 `GEMINI_MODEL` 指定，預設 `gemini-3.7-flash`（202
 
 標題、價格、坪數、格局、屋齡、樓層、行政區、外部連結，加上：
 
-- `breakdown` 六維條狀圖
+- `breakdown` 七維條狀圖
 - 天氣、機能、交通、價位四塊摘要數值
 - `dataGaps` 標註
 
 ### 7.4 權重面板
 
-- 六條 slider，0–100
+- 七條 slider，0–100
 - 拖動 → debounce 200ms → `POST /api/rank` → 地圖與卡片即時重排，**不呼叫 Gemini**
 - agent 調整權重時，對應項目閃爍並顯示變化：`交通 20 → 40`
 - 一鍵 reset 回等權
+
+### 7.6 生效中的硬條件（逃生口）
+
+結果區上方顯示目前生效的 `hard` 條件，每一項都是可移除的 chip：
+`臺北市 ✕`、`總價 ≤ 1500 萬 ✕`、`屋齡 ≤ 20 年 ✕`。
+
+這不只是便利功能，是**正確性需求**。理由見 §5.4：`cities` 無法由放寬階梯救回，
+所以 UI 是使用者唯一能脫離 0 筆狀態的途徑。同時它也補上一個透明度缺口 ——
+agent 從對話中萃取出來的條件，使用者原本完全看不到自己被套用了什麼。
+
+「重設」按鈕同時清空權重與 `hard` 條件。
 
 ### 7.5 行動版
 
