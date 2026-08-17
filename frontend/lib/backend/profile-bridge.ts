@@ -52,16 +52,26 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
     },
   }
 
-  // 地區欄位一律送，包含空陣列 —— 與 avoidFengshui 同一個道理：deep-merge 對陣列是
-  // 整體覆寫，送空陣列是「使用者取消了指定地區」唯一表達得出來的方式。只在非空時送
-  // 的話，一旦設過就再也清不掉。
+  // 空陣列一律送 —— 與 avoidFengshui 同一個道理：deep-merge 對陣列是整體覆寫，
+  // 送空陣列是「使用者取消了」唯一表達得出來的方式。只在非空時送的話，一旦設過就清不掉。
   const hard: NonNullable<PreferencePatch['hardConstraints']> = {
     regions: profile.hard.regions ?? [],
-    cities: profile.hard.cities ?? [],
-    districts: profile.hard.districts ?? [],
     excludedCities: profile.hard.excludedCities ?? [],
     excludedDistricts: profile.hard.excludedDistricts ?? [],
   }
+
+  // cities / districts 只在**空的時候**送。
+  //
+  // 這兩個欄位在 client profile 裡幾乎都不是使用者填的，而是 toSearchProfile 從後端
+  // 的選區排名推導出來的（UI 也沒有任何地方能讓使用者直接指定行政區）。原樣送回去，
+  // agent 上一輪自己挑的區就變成這一輪的硬條件，search_locations 從此被鎖在原地 ——
+  // 症狀是「權重有跟著對話變，但地區永遠不換」。
+  //
+  // 真正由使用者說出口的地區（「我只要台北」）是 agent 自己用 update_preferences
+  // 寫進後端 state 的，本來就留在後端，不需要前端幫忙轉送。
+  // 送空陣列則仍然必要：那是重設按鈕清掉後端既有地區的唯一手段。
+  if (!profile.hard.cities?.length) hard.cities = []
+  if (!profile.hard.districts?.length) hard.districts = []
   // The backend only models monthly rent, so budgets are meaningless in sale mode
   // (萬元總價 vs 元月租 differ by orders of magnitude).
   if (profile.mode === 'rent') {
