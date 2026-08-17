@@ -24,7 +24,7 @@ ENV BACKEND_URL=http://backend:3001
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
-COPY --from=build /app/public ./public
+# 這個專案沒有 public/ —— 加上去會讓 COPY 直接失敗
 COPY --from=build /app/data ./data
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.ts ./next.config.ts

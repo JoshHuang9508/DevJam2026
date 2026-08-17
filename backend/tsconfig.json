@@ -12,11 +12,11 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "types": ["node", "vitest/globals"],
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"]
-    }
+    "types": ["node", "vitest/globals"]
+    // 原本有 baseUrl + paths 的 "@/*" -> "src/*"，但整個 backend 沒有任何
+    // 檔案用過這個 alias（一律相對路徑 import）。TypeScript 7 移除了 baseUrl，
+    // 而 CI 解析到的是根目錄的 TS 7 而非 backend 自己的 5.9，於是 typecheck 失敗。
+    // 未使用的設定直接刪掉，兩個版本都能過。
   },
   "include": ["src/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
 }
