@@ -2,6 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { preferencePatchSchema, type PreferencePatch } from "../../domain/preferences/schema.js";
 import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
+import { ListingsUnavailableError, type ListingsProvider } from "../../providers/listings/index.js";
 import type { ProviderRegistry } from "../../providers/types.js";
 import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
 import type { PreferenceService } from "../../services/preference.service.js";
@@ -18,6 +19,7 @@ interface ToolDependencies {
   recommendations: RecommendationService;
   providers: ProviderRegistry;
   urbanPlan: UrbanPlanProvider;
+  listings: ListingsProvider;
   publish: (event: AgentEvent) => void;
 }
 
@@ -110,6 +112,48 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
         const candidate = await deps.recommendations.getCandidate(deps.sessionId, locationId);
         if (!candidate) throw new Error(`Candidate ${locationId} has not been ranked`);
         return textResult(candidate);
+      },
+    },
+    {
+      name: "rank_listings",
+      label: "排名實際房屋物件",
+      description:
+        "用目前的 preference state 對物件資料庫排名，回傳可以直接向使用者推薦的實際房屋物件（含地址、價格、坪數、格局、屋齡、分數與貢獻最大的三個維度）。" +
+        "這是回答「哪一間適合我」的唯一資料來源。分數由 deterministic scoring engine 產生，不得自行計算或改寫。" +
+        "先呼叫 rank_candidates 選出行政區可以讓結果集中在較適合的區域，但不是必要前置。",
+      parameters: Type.Object({
+        mode: Type.Optional(Type.String({ description: "sale（買賣）或 rent（租賃）。省略時沿用預設。" })),
+        limit: Type.Optional(Type.Number({ description: "回傳幾筆，1..20，預設 8。" })),
+        useRankedDistricts: Type.Optional(Type.Boolean({
+          description: "true（預設）時把已排名的前幾個行政區當成搜尋範圍；false 則不限行政區。",
+        })),
+      }),
+      execute: async (_id, params, signal) => {
+        const { mode, limit, useRankedDistricts } = params as {
+          mode?: string; limit?: number; useRankedDistricts?: boolean;
+        };
+        if (mode !== undefined && mode !== "sale" && mode !== "rent") {
+          throw new Error(`mode 只接受 "sale" 或 "rent"；收到「${mode}」。`);
+        }
+        const session = await deps.sessions.get(deps.sessionId);
+        try {
+          const result = await deps.listings.rank({
+            sessionId: deps.sessionId,
+            preferences: session.preferences,
+            districts: useRankedDistricts === false ? [] : session.candidates,
+            ...(mode ? { mode } : {}),
+            ...(limit ? { limit } : {}),
+            ...(signal ? { signal } : {}),
+          });
+          // 0 筆是常見且有意義的結果（條件太嚴），不是錯誤 —— 讓 agent 拿著
+          // relaxations 去說明為什麼，而不是丟例外把整輪打斷。
+          return textResult(result);
+        } catch (error) {
+          if (error instanceof ListingsUnavailableError) {
+            return textResult({ error: error.message, listings: [], total: 0, relaxations: [] });
+          }
+          throw error;
+        }
       },
     },
   ];

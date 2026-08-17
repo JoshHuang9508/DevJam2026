@@ -28,6 +28,10 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY 必須在 .env.prod 設定}
       # 後端只被前端從 compose 內網呼叫，瀏覽器不會直接連它；
       # 這裡填公開 origin 只是為了萬一開了 /api/backend/* 代理時仍然正確。
+      # agent 的 rank_listings 透過這個位址借用前端的物件資料庫與計分器。
+      # 這是 web -> backend -> web 的回呼，不是啟動相依：backend 先起來也沒關係，
+      # 這條路只有在 agent 真的呼叫 rank_listings 時才會用到。
+      FRONTEND_URL: http://web:3000
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
       REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1048576}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
