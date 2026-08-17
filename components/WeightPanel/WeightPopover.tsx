@@ -42,7 +42,7 @@ export function WeightPopover({ profile, onChange, highlighted, open, onOpenChan
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 z-40 mb-2 w-80 rounded-xl border border-neutral-200 bg-white shadow-xl">
+        <div className="absolute bottom-full left-0 z-40 mb-2 w-80 rounded-xl border border-neutral-200 bg-white shadow-xl max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:w-full max-md:rounded-b-none">
           <WeightPanel profile={profile} onChange={onChange} highlighted={highlighted} />
         </div>
       )}

@@ -20,6 +20,12 @@ import { Entrance } from '@/components/AgentApp/Entrance'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
+// 與入口淡出的 transition duration-[240ms] 對齊：opacity 不會往子節點的 computed style
+// 傳遞（不像 visibility 會繼承），所以只淡出外層是不夠的——Entrance 自己的 data-testid
+// 節點量出來 opacity 仍是 1，Playwright 的 isVisible() 只看目標節點本身加上祖先的
+// display/visibility，不管祖先的 opacity，因此仍判定為「visible」。等淡出動畫跑完再
+// 補上 invisible（繼承性的 visibility:hidden），讓量測與畫面兩邊都算「看不見」。
+const ENTRANCE_FADE_MS = 240
 
 interface Status {
   backendUp: boolean
@@ -40,6 +46,10 @@ export function AgentApp() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
   const [listOpen, setListOpen] = useState(true)
+  // md（768px）以下改單欄 + 分頁；桌面版忽略這個狀態，三欄照常並排。
+  const [mobileTab, setMobileTab] = useState<'chat' | 'map' | 'list'>('chat')
+  // 淡出動畫跑完才真正隱藏，見 ENTRANCE_FADE_MS 註解
+  const [entranceFaded, setEntranceFaded] = useState(false)
 
   const profileRef = useRef<SearchProfile>(s.profile)
   profileRef.current = s.profile
@@ -65,6 +75,13 @@ export function AgentApp() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // 入口淡出動畫跑完才切到 invisible（見 ENTRANCE_FADE_MS 註解）；還沒開始或還在動畫中都不隱藏。
+  useEffect(() => {
+    if (messages.length === 0) { setEntranceFaded(false); return }
+    const timer = window.setTimeout(() => setEntranceFaded(true), ENTRANCE_FADE_MS)
+    return () => window.clearTimeout(timer)
+  }, [messages.length])
+
   // Slider / mode path: pure scoring engine, no backend and no model call.
   useDebouncedEffect(() => {
     if (skipNextRank.current) { skipNextRank.current = false; return }
@@ -79,6 +96,7 @@ export function AgentApp() {
   const send = useCallback(async (text: string) => {
     const message = text.trim()
     if (!message || chatting) return
+    setMobileTab('map')
     const turn = `${Date.now()}`
     setInput('')
     setChatting(true)
@@ -178,7 +196,7 @@ export function AgentApp() {
         aria-hidden={started}
         className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
-        }`}
+        } ${entranceFaded ? 'invisible' : ''}`}
       >
         <Entrance
           mode={s.profile.mode}
@@ -190,12 +208,32 @@ export function AgentApp() {
         />
       </div>
 
+      {/* 行動版分頁列：只在對話已開始、且螢幕小於 md 時顯示。三欄在窄螢幕一次只顯示一個，
+          由 mobileTab 決定；桌面版（md 以上）三欄照常並排，這裡的狀態完全不影響桌面版。 */}
+      {started && (
+        <nav className="absolute inset-x-0 top-0 z-30 flex border-b border-neutral-200 bg-white md:hidden" aria-label="檢視切換">
+          {([['chat', '對話'], ['map', '地圖'], ['list', '物件']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMobileTab(key)}
+              aria-pressed={mobileTab === key}
+              className={`flex-1 py-2 text-sm font-medium ${
+                mobileTab === key ? 'border-b-2 border-neutral-900 text-neutral-900' : 'text-neutral-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
       {/* 入口是不透明的 absolute inset-0，開始前已完全遮住這裡；不需要另外淡入，避免雙重表頭同時可見。
           inert + aria-hidden 理由同上：未開始時把這一側移出無障礙樹（見上方入口區塊的註解）。 */}
       <aside
         inert={!started}
         aria-hidden={!started}
-        className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white"
+        className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-neutral-200 bg-white md:flex md:w-[380px]`}
       >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
@@ -287,9 +325,10 @@ export function AgentApp() {
         </div>
       </aside>
 
-      {/* 中欄：地圖，從右滑入。永遠掛載，避免 MapLibre 重新初始化 */}
+      {/* 中欄：地圖，從右滑入。永遠掛載，避免 MapLibre 重新初始化；
+          行動版只用 display 切換分頁，不影響掛載狀態。 */}
       <section
-        className={`flex min-w-0 flex-1 flex-col transition-transform duration-[240ms] ease-out motion-reduce:transition-none ${
+        className={`${mobileTab === 'map' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col transition-transform duration-[240ms] ease-out motion-reduce:transition-none md:flex ${
           started ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -323,16 +362,20 @@ export function AgentApp() {
         </div>
       </section>
 
-      {/* 右欄：可收納物件列表，取代原本吃掉地圖空間的底部橫向 strip */}
-      <ListingList
-        results={s.results}
-        hoveredId={s.hoveredId}
-        selectedId={selectedId}
-        onHover={s.setHoveredId}
-        onSelect={setSelectedId}
-        open={listOpen}
-        onToggle={() => setListOpen((v) => !v)}
-      />
+      {/* 右欄：可收納物件列表，取代原本吃掉地圖空間的底部橫向 strip。
+          用 display:contents 的包裝層做行動版分頁切換，讓 ListingList 自己的根節點
+          在桌面版仍直接是 main 的 flex 子項，版面跟改動前完全一樣。 */}
+      <div className={`${mobileTab === 'list' ? 'contents' : 'hidden'} md:contents`}>
+        <ListingList
+          results={s.results}
+          hoveredId={s.hoveredId}
+          selectedId={selectedId}
+          onHover={s.setHoveredId}
+          onSelect={setSelectedId}
+          open={listOpen}
+          onToggle={() => setListOpen((v) => !v)}
+        />
+      </div>
     </main>
   )
 }
