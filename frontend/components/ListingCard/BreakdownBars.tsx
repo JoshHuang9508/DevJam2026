@@ -24,7 +24,7 @@ export function BreakdownBars({ listing }: { listing: ScoredListing }) {
               />
             </span>
             <span className="w-14 shrink-0 text-right tabular-nums text-neutral-400">
-              {Math.round(subscore * 100)}×{weight.toFixed(2)}
+              {Math.round(subscore * 100 * weight)} 分
             </span>
           </li>
         )

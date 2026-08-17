@@ -1,23 +1,14 @@
-import type { StyleSpecification } from 'maplibre-gl'
-
+/// <reference types="google.maps" />
 /**
- * OSM 原生 raster 圖磚，無需 API key。
- * 僅適用於 demo 流量；上線需自架圖磚或改用付費供應商（見 spec 風險章節）。
+ * Google Maps JavaScript API 設定。
+ * NEXT_PUBLIC_GOOGLE_MAPS_API_KEY 必填，需在 Google Cloud Console 啟用 Maps JavaScript API。
+ * MAP_ID 用於 Advanced Marker（沒有自訂樣式時可沿用 DEMO_MAP_ID）。
  */
-export const OSM_RASTER_STYLE: StyleSpecification = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© OpenStreetMap contributors',
-    },
-  },
-  layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
-}
+export const GOOGLE_MAPS_API_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+export const GOOGLE_MAPS_MAP_ID = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID'
 
 /** 台北車站，作為無結果時的預設視角 */
-export const DEFAULT_CENTER: [number, number] = [121.5170, 25.0478]
+export const DEFAULT_CENTER: google.maps.LatLngLiteral = { lat: 25.0478, lng: 121.517 }
 export const DEFAULT_ZOOM = 11
+export const MAX_FIT_ZOOM = 15
+export const FIT_PADDING = 60

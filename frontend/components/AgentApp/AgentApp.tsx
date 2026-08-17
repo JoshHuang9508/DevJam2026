@@ -17,6 +17,7 @@ import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
 import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
 import { Entrance } from '@/components/AgentApp/Entrance'
+import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
@@ -273,21 +274,20 @@ export function AgentApp() {
             )}
             {messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'ml-auto max-w-[85%]' : 'mr-auto max-w-[96%]'}>
-                <div className={`whitespace-pre-wrap text-[13px] leading-relaxed ${
-                  m.role === 'user'
-                    ? 'rounded-2xl rounded-br-md bg-neutral-900 px-3 py-2 text-white'
-                    : 'text-neutral-700'
-                }`}>
-                  {m.content}
-                  {m.streaming && <span className="ml-0.5 animate-pulse text-neutral-400">▍</span>}
-                </div>
+                {m.role === 'user' ? (
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-neutral-900 px-3 py-2 text-[13px] leading-relaxed text-white">
+                    {m.content}
+                  </div>
+                ) : (
+                  <MarkdownMessage streaming={m.streaming}>{m.content}</MarkdownMessage>
+                )}
               </div>
             ))}
             <div ref={chatBottom} />
           </div>
 
           {/* 浮層向上開（bottom-full），要放在輸入表單上方——放下方會被視窗底部裁掉 */}
-          <div className="shrink-0 border-t border-neutral-200 px-3 py-2">
+          <div className="shrink-0 border-neutral-200 px-3 pt-2">
             <WeightPopover
               profile={s.profile}
               onChange={s.setProfile}
@@ -298,7 +298,7 @@ export function AgentApp() {
           </div>
 
           <form
-            className="flex items-end gap-2 border-t border-neutral-200 px-3 py-2"
+            className="flex items-end gap-2 border-neutral-200 p-3"
             onSubmit={(event) => { event.preventDefault(); void send(input) }}
           >
             <textarea
