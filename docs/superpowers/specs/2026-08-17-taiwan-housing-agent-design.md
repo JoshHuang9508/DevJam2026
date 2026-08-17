@@ -31,7 +31,7 @@
 | 層 | 選擇 | 理由 |
 | --- | --- | --- |
 | 框架 | Next.js 15 App Router + TypeScript | 前端、API、資料腳本同一 repo 同一語言；Route Handler 直接支援 SSE 串流 |
-| UI | Tailwind CSS + shadcn/ui | 權重面板、卡片、抽屜等元件快速成形 |
+| UI | Tailwind CSS v4 + Radix UI primitives | 權重面板需要無障礙的 slider；直接用 Radix primitive（即 shadcn/ui 的底層），省去 shadcn CLI 的初始化與版本相依 |
 | 地圖 | MapLibre GL JS + OSM/Carto 免費 vector tile | 無 API token、內建 cluster、萬筆點位仍流暢 |
 | 資料庫 | SQLite（better-sqlite3）+ Drizzle ORM | demo 零維運；上線換 Turso/Postgres 僅換 driver |
 | LLM | Google Gemini（`@google/genai`） | 依需求指定 |
@@ -321,7 +321,7 @@ function score(profile: SearchProfile, pool: ListingWithFeatures[]): ScoredListi
 
 | 維度 | 計算方式 |
 | --- | --- |
-| `price` | `1 - pricePercentile`。若設有 `budgetMax`，改用「貼近上限但不超出為佳」的曲線，避免一味推最便宜的爛物件 |
+| `price` | `1 - pricePercentile`（同區同型態內越相對便宜越高分）。**恆為此式**，不因 `budgetMax` 改變曲線 — 「貼近預算上限為佳」的設計會與 §9 的單調性不變量衝突。「避免推出便宜的爛物件」由 `quality` 與 `space` 維度負責，超出預算則已由 hard filter 排除 |
 | `weather` | `summerTemp`、`winterTemp`、`rainDays`、`humidity`、`aqiMean` 的加權舒適度；`soft.prefersCool` 提高夏季溫度項權重，`soft.prefersLowRain` 提高降雨日數項權重 |
 | `location` | `1 / (1 + distToMetro / 800)` 為基底；若有 `commuteAnchor`，改以到該錨點的估計通勤分鐘數為主項（同 4.2 的簡化模型，`maxMin` 作為軟性懲罰的轉折點，**不做硬性排除**）；無捷運城市改用 `distToTrain` 與 `distToBus` |
 | `amenities` | `log1p(POI 計數)` 的加權和。500m 權重高於 1km。各類別權重：超商、超市、公園、醫院、學校、餐飲 |
@@ -363,7 +363,9 @@ interface ScoredListing extends ListingWithFeatures {
 
 ### 6.1 模型
 
-model ID 由環境變數 `GEMINI_MODEL` 指定。萃取與解釋皆使用 flash 級模型（成本、延遲、function calling 品質的平衡點）。實作時需查閱 Google 官方文件確認當下可用的 model ID，不得憑記憶寫死。
+model ID 由環境變數 `GEMINI_MODEL` 指定，預設 `gemini-3.7-flash`（2026-08 查證於 Google 官方文件，為當時最新的 Flash 穩定版，主打 agentic 與多步驟工具呼叫）。萃取與解釋皆使用 flash 級模型（成本、延遲、function calling 品質的平衡點）。
+
+注意 `gemini-2.5-flash` 將於 2026-10-16 停用，不可作為預設值。
 
 ### 6.2 Tool 定義
 
