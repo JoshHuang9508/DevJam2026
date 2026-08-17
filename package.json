@@ -8,9 +8,11 @@
     "start": "next start",
     "test": "vitest run",
     "test:watch": "vitest",
+    "predb:push": "mkdir -p data",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:all": "vitest run && playwright test"
   },
   "dependencies": {
     "@google/genai": "^2.17.1",

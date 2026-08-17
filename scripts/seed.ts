@@ -5,7 +5,7 @@
  */
 import Database from 'better-sqlite3'
 import { mkdirSync } from 'node:fs'
-import { estimateCommuteMinutes, haversineMeters } from '../lib/geo'
+import { estimateCommuteMinutes } from '../lib/geo'
 
 /** 確定性亂數：線性同餘產生器。不得改用 Math.random()，否則測試無法重現。 */
 function makeRng(seed: number) {

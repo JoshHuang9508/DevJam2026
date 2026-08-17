@@ -4521,6 +4521,9 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
   const [streaming, setStreaming] = useState(false)
   const [highlighted, setHighlighted] = useState<WeightHighlights>({})
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 記下對話路徑套用的那個 profile 物件。SSE 的 results 事件已經連同排序結果一起回來了，
+  // 主畫面靠比對這個參考來跳過一次多餘的 /api/rank。
+  const appliedByChat = useRef<SearchProfile | null>(null)
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -4555,6 +4558,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
         for (const e of events) {
           if (e.event === 'profile') {
             const next = e.data as SearchProfile
+            appliedByChat.current = next
             search.setProfile(next)
             const diff = diffWeights(before, next)
             if (Object.keys(diff).length > 0) {
@@ -4586,7 +4590,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
     }
   }, [messages, search, streaming])
 
-  return { messages, streaming, send, highlighted }
+  return { messages, streaming, send, highlighted, appliedByChat }
 }
 ```
 
@@ -4776,11 +4780,28 @@ export default function Home() {
   const chat = useChat(search)
   const [started, setStarted] = useState(false)
 
-  // 開始對話後，profile 的任何變動（含 slider 拖動）都在 debounce 後重新排序。
-  // 此路徑不呼叫 Gemini — 這是「手動調權重」的第二條路徑。
+  // 手動調權重的第二條路徑：profile 變動後 debounce 重排，不呼叫 Gemini。
+  //
+  // 依賴陣列**只能**放 search.profile。放進 chat.streaming 或 started 都會產生
+  // 多餘的 /api/rank：
+  //
+  //   chat.streaming — 串流結束時 true→false 本身就重排計時器，200ms 後守衛
+  //     通過，但那份 profile 的排序結果早就由 SSE 的 results 事件送回來了。
+  //   started — 點下範例 chip 那一刻 false→true 同樣重排計時器。這顆計時器與
+  //     /api/chat 的 SSE 回合是兩條獨立時間線在賽跑：串流比 200ms 快時
+  //     （無 API key 的 fallback 正是如此），計時器在 profile 事件把
+  //     appliedByChat 設好之前就到期，此時 search.profile 還是舊值、
+  //     appliedByChat.current 還是 null，兩者必然不相等，照樣多打一次。
+  //
+  // 兩者都仍在 closure 內讀取最新值，只是不再觸發重新排程。
+  // 對話路徑套用的 profile 則靠物件參考比對直接跳過。
   useDebouncedEffect(
-    () => { if (started && !chat.streaming) void search.rank(search.profile) },
-    [search.profile, started, chat.streaming],
+    () => {
+      if (!started) return
+      if (search.profile === chat.appliedByChat.current) return
+      void search.rank(search.profile)
+    },
+    [search.profile],
     RANK_DEBOUNCE_MS,
   )
 
@@ -4953,7 +4974,10 @@ export default defineConfig({
   webServer: {
     command: 'pnpm dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: true,
+    // 只在本機重用既有伺服器。無條件 true 會讓測試靜默地對著 port 3000 上
+    // 任何殘留行程跑——陳舊的、別的專案的、上一個 task 漏關的——而不是待測程式碼，
+    // 且 Playwright 只會關閉自己啟動的伺服器，那個殘留的會繼續留著。
+    reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },
 })
@@ -5145,6 +5169,39 @@ Gemini 只負責兩件事：把自然語言轉成 `SearchProfile` 的變動量�
 示範資料涵蓋臺北市與新北市共 20 個行政區、360 筆物件，由 `scripts/seed.ts` 確定性產生。
 氣候值為中央氣象署測站氣候平均的近似值，POI 與距離為模擬值。
 真實資料抓取與 enrich pipeline 見計畫 B。
+
+## ⚠️ Gemini 路徑尚未經過品質驗證
+
+自動化測試涵蓋的是**提示詞組裝、工具輸出驗證、失敗降級**，全部是純函式，不呼叫 API。
+真正打 Gemini 的整合測試預設跳過，因為建置期間沒有 API 金鑰。
+
+也就是說，以下三件事目前**沒有任何證據支持**，需要你自己驗證：
+
+1. 使用者說一句話，條件是否被正確萃取（例如「1500 萬以內」→ `budgetMax: 1500`）
+2. 模糊說法是否正確地**不會**變成硬條件（「不要太貴」應提高 price 權重，而非設 `budgetMax`）
+3. 解釋文字是否真的講取捨、揭露放寬條件、以問句結尾
+
+無金鑰時系統仍完整運作 —— 排序照常、地圖照常、對話顯示降級文案 —— 但 agent 不會真的理解你說什麼。
+
+### 怎麼驗證
+
+```bash
+# 1. 填入金鑰
+echo 'GEMINI_API_KEY=你的金鑰' >> .env.local
+
+# 2. 跑萃取的整合測試（四個中文語句 fixture，會產生少量費用）
+RUN_LLM_TESTS=1 pnpm vitest run lib/agent/extract.integration.test.ts
+
+# 3. 實際對話
+pnpm dev
+```
+
+整合測試驗證的正是上面第 1、2 點。第 3 點需要人眼看 —— 送出
+「我在信義區上班，預算 1500 萬以內，想要安靜、生活機能好」，
+確認左側權重面板有維度閃爍並顯示 `50 → 70` 這樣的變化，且回覆有講取捨、結尾是問句。
+
+若萃取品質不佳，調整的地方是 `lib/agent/prompts.ts` 的 `EXTRACT_SYSTEM_PROMPT`，
+特別是四條硬規則中的第 2 條（hard 條件要保守）——那條是防止結果被濾成 0 筆的關鍵。
 ```
 
 - [ ] **Step 8: Commit**

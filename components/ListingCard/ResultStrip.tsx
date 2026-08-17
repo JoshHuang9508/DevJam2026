@@ -16,7 +16,7 @@ export function ResultStrip({ results, hoveredId, onHover }: Props) {
     return (
       <div className="grid min-h-[7rem] place-items-center px-6 text-center">
         <p className="max-w-sm text-sm leading-relaxed text-neutral-500">
-          還沒有結果。描述一下你想要的生活，或直接調整左邊的權重。
+          還沒有結果。描述一下你想要的生活，或直接調整權重面板。
         </p>
       </div>
     )

@@ -14,17 +14,22 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
   const setWeight = (key: WeightKey, value: number) => {
     onChange({ ...profile, weights: { ...profile.weights, [key]: value } })
   }
-  const isDefault = WEIGHT_KEYS.every((k) => profile.weights[k] === DEFAULT_PROFILE.weights[k])
 
   return (
     <section className="bg-white px-4 py-3" data-testid="weight-panel">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">權重</h2>
+        {/*
+          刻意不加 disabled：它會依 profile 算出 true/false，而瀏覽器擴充功能
+          （會改寫 DOM 的那類）在 React hydrate 前把屬性拿掉，就會炸出
+          "server rendered HTML didn't match" 的 hydration error。
+          重設鍵在已是預設值時按下去本來就是 no-op，不需要停用。
+          一併清掉 hard —— 那是硬條件濾到 0 筆時的逃生口。
+        */}
         <button
           type="button"
-          disabled={isDefault}
-          onClick={() => onChange({ ...profile, weights: { ...DEFAULT_PROFILE.weights } })}
-          className="text-[11px] text-neutral-400 transition hover:text-neutral-800 disabled:cursor-default disabled:opacity-40 disabled:hover:text-neutral-400"
+          onClick={() => onChange({ ...profile, weights: { ...DEFAULT_PROFILE.weights }, hard: {} })}
+          className="text-[11px] text-neutral-400 underline-offset-2 transition hover:text-neutral-800 hover:underline"
         >
           重設
         </button>

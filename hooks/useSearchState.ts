@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { parseProfile } from '@/lib/profile/schema'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
 
@@ -10,7 +11,7 @@ function loadStoredProfile(): SearchProfile {
   if (typeof window === 'undefined') return DEFAULT_PROFILE
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...DEFAULT_PROFILE, ...JSON.parse(raw) } : DEFAULT_PROFILE
+    return raw ? parseProfile(JSON.parse(raw)) : DEFAULT_PROFILE
   } catch {
     return DEFAULT_PROFILE
   }

@@ -73,8 +73,9 @@ export function ListingCard({ listing, rank, hovered, onHover }: Props) {
       <p className="text-[11px] leading-relaxed text-amber-700">
         − {WEIGHT_LABELS[worst]}相對弱（{Math.round(listing.breakdown[worst].subscore * 100)}）
       </p>
-      <p className="mt-1.5 text-[10px] text-neutral-400">
-        示範資料{listing.dataGaps.length > 0 && '，部分欄位以同區中位數補值'}
+      <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
+        示範資料：價格與生活機能數量為模擬值
+        {listing.dataGaps.length > 0 && '，部分欄位以同區中位數補值'}
       </p>
     </article>
   )
