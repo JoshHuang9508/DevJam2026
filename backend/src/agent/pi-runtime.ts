@@ -46,7 +46,13 @@ export class PiAgentRuntime implements AgentRuntime {
     });
     const started = new Map<string, number>();
     let messageStarted = false;
-    agent.subscribe((event) => this.forwardEvent(event, input.turnId, queue, started, () => messageStarted, () => { messageStarted = true; }));
+    let streamedThinking = false;
+    agent.subscribe((event) => this.forwardEvent(event, input.turnId, queue, started, {
+      getMessageStarted: () => messageStarted,
+      setMessageStarted: () => { messageStarted = true; },
+      getStreamedThinking: () => streamedThinking,
+      setStreamedThinking: () => { streamedThinking = true; },
+    }));
     void agent.prompt(buildTurnPrompt(input.session, input.message)).catch((error: unknown) => {
       queue.push({ type: "error", code: "PI_RUNTIME_FAILED", message: error instanceof Error ? error.message : String(error), recoverable: true, ...eventMeta(input.turnId) });
       queue.end();
@@ -60,27 +66,50 @@ export class PiAgentRuntime implements AgentRuntime {
     turnId: string,
     queue: AsyncQueue<AgentEvent>,
     started: Map<string, number>,
-    getMessageStarted: () => boolean,
-    setMessageStarted: () => void,
+    flags: {
+      getMessageStarted: () => boolean;
+      setMessageStarted: () => void;
+      getStreamedThinking: () => boolean;
+      setStreamedThinking: () => void;
+    },
   ): void {
     const meta = () => eventMeta(turnId);
-    if (event.type === "message_start" && event.message.role === "assistant" && !getMessageStarted()) {
-      setMessageStarted();
+    if (event.type === "message_start" && event.message.role === "assistant" && !flags.getMessageStarted()) {
+      flags.setMessageStarted();
       queue.push({ type: "message.started", ...meta() });
     } else if (event.type === "message_update") {
       const inner = event.assistantMessageEvent;
       if (inner.type === "text_delta") queue.push({ type: "message.delta", delta: inner.delta, ...meta() });
-      else if (inner.type === "thinking_start") queue.push({ type: "thinking.started", ...meta() });
-      else if (inner.type === "thinking_delta") queue.push({ type: "thinking.delta", delta: inner.delta, ...meta() });
-      else if (inner.type === "thinking_end") queue.push({ type: "thinking.completed", thinking: inner.content, ...meta() });
-    } else if (event.type === "message_end" && event.message.role === "assistant" && !event.message.content.some((block) => block.type === "toolCall")) {
-      queue.push({
-        type: "message.completed",
-        message: contentText(event.message.content),
-        model: event.message.model,
-        usage: { input: event.message.usage.input, output: event.message.usage.output, totalTokens: event.message.usage.totalTokens, costUsd: event.message.usage.cost.total },
-        ...meta(),
-      });
+      else if (inner.type === "thinking_start") {
+        flags.setStreamedThinking();
+        queue.push({ type: "thinking.started", ...meta() });
+      } else if (inner.type === "thinking_delta") {
+        flags.setStreamedThinking();
+        queue.push({ type: "thinking.delta", delta: inner.delta, ...meta() });
+      } else if (inner.type === "thinking_end") {
+        flags.setStreamedThinking();
+        queue.push({ type: "thinking.completed", thinking: inner.content, ...meta() });
+      }
+    } else if (event.type === "message_end" && event.message.role === "assistant") {
+      const thinking = event.message.content
+        .filter((block): block is { type: "thinking"; thinking: string } => block.type === "thinking")
+        .map((block) => block.thinking)
+        .filter(Boolean)
+        .join("\n");
+      if (thinking && !flags.getStreamedThinking()) {
+        flags.setStreamedThinking();
+        queue.push({ type: "thinking.started", ...meta() });
+        queue.push({ type: "thinking.completed", thinking, ...meta() });
+      }
+      if (!event.message.content.some((block) => block.type === "toolCall")) {
+        queue.push({
+          type: "message.completed",
+          message: contentText(event.message.content),
+          model: event.message.model,
+          usage: { input: event.message.usage.input, output: event.message.usage.output, totalTokens: event.message.usage.totalTokens, costUsd: event.message.usage.cost.total },
+          ...meta(),
+        });
+      }
     } else if (event.type === "tool_execution_start") {
       started.set(event.toolCallId, performance.now());
       queue.push({ type: "tool.started", toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.args, ...meta() });
