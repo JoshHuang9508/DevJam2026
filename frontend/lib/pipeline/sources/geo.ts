@@ -270,6 +270,21 @@ interface GeocodeCache { [address: string]: { lat: number; lng: number } | null 
 const SAVE_EVERY = 200
 
 /**
+ * 台灣（含離島）的座標範圍。金門 118.2°E、馬祖東引 26.38°N、鵝鑾鼻 21.9°N、
+ * 彭佳嶼 122.08°E，各留一點邊。
+ *
+ * 需要這個檢查是因為實價登錄有些「門牌」其實是地號（例如「塘岐段684地號」），
+ * Google 找不到對應街址時會挑一個字面相近的地方 —— 實測有一筆連江縣的地號
+ * 被配到江蘇（31.84°N）。落在範圍外一律當成查無，退回行政區重心。
+ */
+const TAIWAN_BOUNDS = { minLat: 21.5, maxLat: 26.5, minLng: 118.1, maxLng: 122.2 }
+
+function inTaiwan(point: Point): boolean {
+  return point.lat >= TAIWAN_BOUNDS.minLat && point.lat <= TAIWAN_BOUNDS.maxLat
+    && point.lng >= TAIWAN_BOUNDS.minLng && point.lng <= TAIWAN_BOUNDS.maxLng
+}
+
+/**
  * 實價登錄完全沒有座標，只有門牌 —— 這是整條 pipeline 唯一需要付費 API 的地方。
  *
  * 注意這把金鑰不能用 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY —— 那把設了 HTTP referrer 限制，
@@ -348,7 +363,9 @@ export class Geocoder {
         throw new Error(`Google Geocoding ${json.status} —— 檢查金鑰是否啟用 Geocoding API 且沒有 referrer 限制`)
       }
       const location = json.results?.[0]?.geometry?.location
-      return location && Number.isFinite(location.lat) ? { lat: location.lat, lng: location.lng } : null
+      if (!location || !Number.isFinite(location.lat)) return null
+      const point = { lat: location.lat, lng: location.lng }
+      return inTaiwan(point) ? point : null
     } catch (error) {
       if (error instanceof Error && error.message.includes('Google Geocoding')) throw error
       return null
