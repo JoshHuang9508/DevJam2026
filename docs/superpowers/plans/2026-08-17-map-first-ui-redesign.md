@@ -759,7 +759,7 @@ interface Props {
   hoveredId: string | null
   selectedId: string | null
   onHover: (id: string | null) => void
-  onSelect: (id: string) => void
+  onSelect: (id: string | null) => void
   open: boolean
   onToggle: () => void
 }
@@ -804,15 +804,20 @@ export function ListingList({ results, hoveredId, selectedId, onHover, onSelect,
         <p className="p-4 text-sm text-neutral-500">還沒有結果。描述一下你想要的生活，或直接調整權重。</p>
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+          {/* 不要在外面再包一層可點擊的 div。Task 4 已經把 role="button"、onClick
+              與 Enter/Space 鍵盤處理做進 ListingCard 內部，外層再包會重複觸發，
+              而且在 role="button" 外面套一個可點擊 div 在無障礙上是錯的。
+              hovered 與 selected 也必須分開傳，混成一個值會毀掉 Task 4 建立的兩態區分。 */}
           {results.map((r, i) => (
-            <div key={r.id} onClick={() => onSelect(r.id)} className="cursor-pointer">
-              <ListingCard
-                listing={r}
-                rank={i + 1}
-                hovered={r.id === hoveredId || r.id === selectedId}
-                onHover={onHover}
-              />
-            </div>
+            <ListingCard
+              key={r.id}
+              listing={r}
+              rank={i + 1}
+              hovered={r.id === hoveredId}
+              selected={r.id === selectedId}
+              onHover={onHover}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}
