@@ -28,7 +28,9 @@
   （`price` = 跨區絕對價格水準，`value` = 同區性價比。Task 4B 前只有六個，缺 `value`）
 - 種子資料必須是**確定性**的（固定 seed 的 LCG，不得用 `Math.random()`），否則測試無法重現
 - 所有面向使用者的文字為繁體中文
-- 每個 task 結束時 `pnpm test` 必須全綠才可 commit
+- 每個 task 結束時 `pnpm test` 必須全綠，且 `pnpm exec tsc --noEmit` 必須無錯，兩者都通過才可 commit。
+  **`vitest` 不做型別檢查** —— 測試檔裡的型別錯誤（例如 `breakdown` 少一個維度鍵）在 `pnpm test`
+  完全不會出現，只會在 build 時才炸。只跑測試不足以證明程式碼正確。
 
 **與 spec §3.3 的目錄差異**（實作時以本計畫為準）：spec 只列了主要目錄，本計畫另外拆出
 `lib/profile/`（profile 合併與 Zod 驗證，被 agent 與 API 共用）、`lib/client/`（純前端工具，
