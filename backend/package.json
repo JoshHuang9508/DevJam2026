@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "tsx src/database/migrate.ts",
-    "demo": "tsx scripts/acceptance-demo.ts"
+    "demo": "tsx scripts/acceptance-demo.ts",
+    "urban-plan:smoke": "tsx scripts/urban-plan-smoke.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.2",

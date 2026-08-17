@@ -8,7 +8,7 @@
 
 | 路徑 | 內容 | agent | 排序 |
 | --- | --- | --- | --- |
-| `/` | 主畫面：對話 + 權重面板 + 選區 + 地圖 + 物件卡片 | 後端 Pi agent（九個 domain tools） | 後端選行政區 → `lib/scoring` 在那些區內排物件 |
+| `/` | 主畫面：對話 + 權重面板 + 選區 + 地圖 + 物件卡片 | 後端 Pi agent（十個 domain tools） | 後端選行政區 → `lib/scoring` 在那些區內排物件 |
 | `/classic` | 只有權重面板的原始畫面，無對話層 | 無 | `lib/scoring` 直接對全池 |
 
 `/classic` 保留下來方便單獨驗證 scoring engine，也是接後端之前的原始主畫面。
@@ -115,9 +115,31 @@ CUSTOM_OPENAI_CONTEXT_WINDOW=272000
 
 換 provider 只要改 `backend/.env` 重啟後端，前端不用改。
 
+## 都市計畫使用分區（真實圖資）
+
+後端多了一支跟 session 無關的 `POST /urban-plan`，以 WGS84 座標直接查三個官方系統：
+
+| 縣市 | 來源 | 拿得到什麼 |
+| --- | --- | --- |
+| 臺北市 | [UPIS v2](https://webgis.udd.gov.taipei/upis_v2) | 使用分區、分區代碼、歷年都市計畫案（含公告文號）、都更／山坡地／禁限建／都審範圍 |
+| 新北市 | [城鄉資訊查詢平台](https://urban.planning.ntpc.gov.tw/NtpcURInfo/Map.aspx) | 用地類別、**建蔽率**、**容積率**、所屬都市計畫、細部計畫、免建築線／禁建線 |
+| 基隆市 | [都市計畫整合查詢](https://upgis.klcg.gov.tw/KL_LAND/) | 使用分區、主要計畫區、細部計畫區、都計案範圍 |
+
+這是後端目前唯一的非 fixture 資料（`isFixture: false`）。agent 側對應工具 `get_urban_plan`。
+
+物件卡片要顯示分區的話，`ListingCard` 已經有 `lat`/`lng`，打這支即可 —— 它不需要 session，
+結果在後端有快取（預設 24 小時），同一個座標重打是 0ms。**前端目前還沒接**，是刻意留給 UI 決定
+要放在卡片上還是詳情裡。
+
+回傳的 `match` 一定要照實顯示：`parcel` 才是該座標所在的分區圖形；`nearby` 是座標落在道路或
+河川（這些沒有分區圖形）時取的周邊參考值，不等同該地號的法定分區；`none` 是查無。
+`buildingCoveragePct` / `floorAreaRatioPct` 為 `null` 就是來源沒給，不要自己補行情值。
+
 ## 已知落差
 
 - 後端沒有「清除欄位」的 patch 表示法（`undefined` 會被 deep-merge 跳過），所以清掉預算上限不會同步到後端，只會變大。
 - 後端的 `maxCommuteMinutes` 有欄位但沒有 route-time provider，設了不生效；前端的 `soft.commuteAnchor` 也不會送到後端。
 - 拖 slider 不會重新選區（見上）。
-- 兩邊都是示範資料：後端 `fixture-v1`，前端 `scripts/seed.ts`，都不是真實房源。
+- 兩邊的**行政區與房源**都是示範資料：後端 `fixture-v1`，前端 `scripts/seed.ts`，都不是真實房源。
+  （唯一的例外是上面那節的都市計畫圖資，那是真的。）
+- 都市計畫圖資只涵蓋臺北市、新北市、基隆市；其他縣市會回 400。

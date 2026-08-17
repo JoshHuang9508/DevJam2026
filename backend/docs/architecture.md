@@ -23,6 +23,11 @@ Fastify API ───────────── OpenAPI
   ├─ replaceable provider interfaces
   │     └─ FixtureProvider v1
   │
+  ├─ UrbanPlanProvider ── point-level, live government GIS
+  │     ├─ 臺北市 UPIS      (都發局 ArcGIS + upis_api)
+  │     ├─ 新北市 城鄉資訊平台 (ArcGIS, 站方公開 token)
+  │     └─ 基隆市 UPGIS      (ArcGIS 10.31, 無需認證)
+  │
   └─ SessionRepository
         ├─ PostgreSQL/PostGIS
         └─ in-memory (tests/demo)
@@ -51,6 +56,36 @@ The response includes raw score, requested weight, effective weight, contributio
 ## Persistence and concurrency
 
 PostgreSQL stores sessions, conversation messages, candidate snapshots, and ranking history. State-changing application tools execute sequentially inside a Pi turn. API validation and parameterized SQL protect boundaries. For a multi-instance production deployment, add optimistic concurrency (`updated_at`/version compare-and-swap) before allowing simultaneous writes to the same session.
+
+## 都市計畫圖資 (urban plan)
+
+Unlike every other provider, this one answers a **coordinate**, not a district, so it sits outside
+`ProviderRegistry` and takes no part in candidate hydration or ranking. It reaches three official
+systems directly and is the only place in the backend serving live, non-fixture government data:
+
+| 縣市 | 服務 | 認證 | 分區資料 |
+| --- | --- | --- | --- |
+| 臺北市 | `historygis.udd.gov.taipei` ArcGIS + `webgis.udd.gov.taipei/upis_api` | 無 | 分區代碼、分區簡稱、使用分區、分區說明；建蔽率／容積率欄位存在但多為空 |
+| 新北市 | `arcgis.planning.ntpc.gov.tw` `NTPC_Urban/LandUse_WMS` | 站方公開 token | 用地類別、分區簡稱、建蔽率、容積率（最完整） |
+| 基隆市 | `upgis.klcg.gov.tw/arcgiswa` `KL_UPGIS/kl_uplan` | 無 | 使用分區、分區代碼；無建蔽率／容積率欄位 |
+
+Design points worth keeping:
+
+- **Two-radius search.** Roads, rivers, and some public-facility land carry no zoning polygon, so a
+  bare point query misses at plenty of real addresses. The report's `match` field distinguishes a
+  `parcel` hit from a `nearby` block sample, and a `nearby` answer always carries a warning saying it
+  is not that parcel's statutory zoning. Nothing is ever inferred to fill a gap.
+- **City resolution never widens before the alternatives are tried.** Bounding boxes only decide who
+  gets asked. A coordinate in 永和 falls inside 臺北市's box and within a block of its polygons across
+  the 新店溪, so widening the first city too early would answer 新北市 addresses with 臺北市 zoning.
+- **Concurrency is capped per source** (`src/lib/limit-concurrency.ts`). One lookup naturally fans out
+  to six to eight endpoint hits; issued all at once, these servers time each other out — measured
+  15s timeouts collapsing to ~0.9s once capped at three in flight.
+- **Null means the source said nothing.** 基隆 has no 建蔽率/容積率 columns and many 臺北 rows leave
+  them blank; those stay `null` and the agent prompt forbids estimating them.
+
+Exposed as `POST /urban-plan` and as the agent tool `get_urban_plan`. `pnpm urban-plan:smoke` checks
+all three cities plus the route against the live services; it is not part of `pnpm test`.
 
 ## Provider roadmap
 

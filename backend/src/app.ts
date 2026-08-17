@@ -10,6 +10,9 @@ import { agentEventSchema, type AgentEvent } from "./agent/events.js";
 import { candidateSchema } from "./domain/candidates/schema.js";
 import { preferencePatchSchema, preferenceStateSchema } from "./domain/preferences/schema.js";
 import { searchSessionSchema } from "./domain/sessions/schema.js";
+import { urbanPlanCitySchema, urbanPlanReportSchema } from "./domain/urban-plan/schema.js";
+import { UrbanPlanCoverageError } from "./providers/urban-plan/index.js";
+import type { UrbanPlanProvider } from "./providers/urban-plan/types.js";
 import type { AppConfig } from "./config/env.js";
 import type { AgentService } from "./services/agent.service.js";
 import type { PreferenceService } from "./services/preference.service.js";
@@ -22,6 +25,7 @@ export interface AppDependencies {
   preferences: PreferenceService;
   recommendations: RecommendationService;
   agent: AgentService;
+  urbanPlan: UrbanPlanProvider;
   runtimeName: string;
 }
 
@@ -43,7 +47,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   await app.register(swagger, {
     openapi: {
       info: { title: "Taiwan Home Selector Agent API", version: "0.1.0", description: "Structured state is the source of truth. POST message supports JSON and text/event-stream." },
-      tags: [{ name: "sessions" }, { name: "agent" }, { name: "recommendations" }],
+      tags: [{ name: "sessions" }, { name: "agent" }, { name: "recommendations" }, { name: "urban-plan" }],
     },
     transform: jsonSchemaTransform,
   });
@@ -51,6 +55,32 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
 
   app.get("/health", { schema: { response: { 200: z.object({ status: z.literal("ok"), runtime: z.string() }) } } }, async () => ({ status: "ok" as const, runtime: deps.runtimeName }));
   app.get("/openapi.json", { schema: { hide: true } }, async () => app.swagger());
+
+  app.post("/urban-plan", {
+    schema: {
+      tags: ["urban-plan"],
+      summary: "以 WGS84 座標查都市計畫使用分區",
+      description: [
+        "直接查臺北市 UPIS、新北市城鄉資訊查詢平台、基隆市 UPGIS 三個官方圖資系統，回傳使用分區、建蔽率、容積率、所屬都市計畫與管制範圍。",
+        "match=parcel 才是該座標所在分區圖形；nearby 是周邊參考值（座標落在道路、河川等無分區圖形處）；none 為查無資料。",
+        "結果會快取；基隆市圖資的回應時間不穩定，偶爾單次查詢會需要 20 秒以上。",
+      ].join(" "),
+      body: z.object({
+        latitude: z.number().min(20).max(27),
+        longitude: z.number().min(118).max(123),
+        city: urbanPlanCitySchema.optional(),
+      }),
+      response: { 200: urbanPlanReportSchema, 400: errorSchema },
+    },
+  }, async (request, reply) => {
+    const { latitude, longitude, city } = request.body;
+    try {
+      return await deps.urbanPlan.lookup({ latitude, longitude, ...(city ? { city } : {}) });
+    } catch (error) {
+      if (error instanceof UrbanPlanCoverageError) return reply.badRequest(error.message);
+      throw error;
+    }
+  });
 
   app.post("/sessions", {
     schema: {
