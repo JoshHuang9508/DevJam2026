@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { loadPool } from '@/lib/db/client'
+import { compressedJson } from '@/lib/http/compress'
 import { parseProfile } from '@/lib/profile/schema'
 import type { MapBounds } from '@/lib/scoring'
 import { rankWithRelaxation } from '@/lib/scoring/relax'
@@ -23,10 +24,12 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const pool = loadPool(profile.mode, profile.hard.cities)
-    return NextResponse.json(rankWithRelaxation(profile, pool, {
+    const ranked = rankWithRelaxation(profile, pool, {
       ...(bounds ? { bounds } : {}),
       ...(limit ? { limit } : {}),
-    }))
+    })
+    // 200 筆帶著 35 個 feature 與 8 維 breakdown 約 480 KB，壓縮後掉到十分之一。
+    return compressedJson(ranked, request)
   } catch (error) {
     console.error('[api/rank] 排序失敗', error)
     return NextResponse.json({ error: '資料庫尚未建立，請先執行 pnpm db:push && pnpm db:seed' }, { status: 500 })
