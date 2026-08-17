@@ -95,7 +95,7 @@ export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, 
       </ul>
 
       <p className="mt-8 text-center text-xs text-neutral-400">
-        目前使用示範資料，涵蓋臺北市與新北市。氣候為區域參考值，通勤時間為估計值。
+        價格與生活機能取自公開資料，可能過時或有誤。氣候為區域參考值，通勤時間為估計值，風水格局證據為模擬值。
       </p>
     </div>
   )

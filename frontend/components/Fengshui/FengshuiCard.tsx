@@ -35,7 +35,7 @@ export function FengshuiCard({ listing }: { listing: ScoredListing }) {
         {/* 這條分支若只寫「缺少證據」，反而是在宣稱系統真的有格局圖辨識管線、只是這間缺圖。
             模擬聲明必須跟著出現，否則誠實標示只守得住展開後的那一半。 */}
         <p className="mt-1 text-[10px] leading-relaxed text-neutral-400">
-          此物件缺少格局圖／照片證據，無法判斷。示範資料的格局證據為模擬值，
+          此物件缺少格局圖／照片證據，無法判斷。格局證據為模擬值，
           系統並未真的辨識格局圖。
         </p>
       </div>
@@ -85,7 +85,7 @@ export function FengshuiCard({ listing }: { listing: ScoredListing }) {
 
         <p className="text-[10px] leading-relaxed text-neutral-400">
           風水為文化偏好而非科學結論，上述解法皆為裝潢與採光建議；
-          示範資料的格局證據為模擬值，並未真的辨識格局圖。
+          格局證據為模擬值，並未真的辨識格局圖。
         </p>
       </div>
     </details>

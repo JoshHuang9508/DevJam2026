@@ -118,7 +118,7 @@ export function ListingCardBody({ listing, rank, expanded, onToggleExpanded }: B
 
           {/* 風水也要逐項點名：FengshuiCard 的模擬聲明藏在 <details> 裡，收合狀態看不到 */}
           <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
-            示範資料：價格、生活機能數量與風水格局證據皆為模擬值
+            價格與生活機能取自公開資料，可能過時或有誤；風水格局證據為模擬值
             {listing.dataGaps.length > 0 && '，部分欄位以同區中位數補值'}
           </p>
         </>
