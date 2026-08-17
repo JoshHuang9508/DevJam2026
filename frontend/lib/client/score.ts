@@ -14,12 +14,6 @@ export const SCORE_STOPS: readonly ScoreStop[] = [
   { at: 0.8, color: [220, 38, 38] },  // red-600
 ]
 
-/** MapLibre `interpolate` stop list, flattened. */
-export const SCORE_STOPS_FLAT: Array<number | string> = SCORE_STOPS.flatMap((s) => [
-  s.at,
-  `rgb(${s.color[0]}, ${s.color[1]}, ${s.color[2]})`,
-])
-
 export function scoreColor(score: number): string {
   const s = Math.min(1, Math.max(0, score))
   let lo = SCORE_STOPS[0]
