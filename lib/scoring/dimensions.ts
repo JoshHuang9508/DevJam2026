@@ -7,12 +7,20 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v)
 export type DimensionFn = (f: FilledListing, p: SearchProfile) => number
 
 /**
- * 房屋價位。恆為 1 - pricePercentile。
- * 刻意不因 budgetMax 改變曲線 — 「貼近預算上限為佳」會破壞
- * 「拉高 price 權重 → 便宜物件排名上升」的單調性不變量。
- * 超出預算已由 hard filter 排除，物件品質由 quality/space 維度把關。
+ * 房價可負擔：跨行政區的絕對單價水準。
+ * 回傳 -unitPrice，下游在候選池內 min-max 正規化後即「單價越低越高分」。
+ * 刻意用單價而非總價 —— 總價混入了坪數大小，單價才隔離出「這個地段多貴」；
+ * 總價上限由 hard.budgetMax 這個硬條件處理，不需要在分數裡重複表達。
  */
-const price: DimensionFn = (f) => 1 - clamp01(f.features.pricePercentile)
+const price: DimensionFn = (f) => -f.listing.unitPrice
+
+/**
+ * 同區性價比：同區同型態內相對便宜的程度。
+ * 恆為 1 - pricePercentile，不因 budgetMax 改變曲線 ——
+ * 「貼近預算上限為佳」會破壞「拉高權重 → 便宜物件排名上升」的單調性不變量。
+ * 這個維度**刻意**對跨區的絕對價差失明，那是 price 的職責。
+ */
+const value: DimensionFn = (f) => 1 - clamp01(f.features.pricePercentile)
 
 /** 舒適溫度區間：夏季 26°C 以下滿分、34°C 0 分；冬季 18°C 以上滿分、8°C 0 分 */
 const SUMMER_BEST = 26
@@ -128,5 +136,5 @@ const quality: DimensionFn = (f, p) => {
 }
 
 export const DIMENSIONS: Record<WeightKey, DimensionFn> = {
-  price, weather, location, amenities, space, quality,
+  price, value, weather, location, amenities, space, quality,
 }

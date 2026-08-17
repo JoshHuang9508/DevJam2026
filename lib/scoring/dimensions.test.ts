@@ -9,16 +9,53 @@ const fill = (l: ListingWithFeatures) => fillDataGaps([l])[0]
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
 describe('DIMENSIONS.price', () => {
-  it('百分位越低分數越高', () => {
-    const cheap = DIMENSIONS.price(fill(makeListing({ features: { pricePercentile: 0.1 } })), profile())
-    const pricey = DIMENSIONS.price(fill(makeListing({ features: { pricePercentile: 0.9 } })), profile())
+  it('單價越低分數越高', () => {
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), profile())
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), profile())
     expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('跨行政區可比：貴區裡最便宜的仍輸給便宜區裡最便宜的', () => {
+    const daanCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tuchengCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(tuchengCheapest).toBeGreaterThan(daanCheapest)
+  })
+
+  it('不受同區百分位影響', () => {
+    const a = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 0 } })), profile())
+    const b = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 1 } })), profile())
+    expect(a).toBe(b)
   })
 
   it('有 budgetMax 也不改變公式（單調性不變量）', () => {
     const p = profile({ hard: { budgetMax: 3000 } })
-    const cheap = DIMENSIONS.price(fill(makeListing({ features: { pricePercentile: 0.1 } })), p)
-    const pricey = DIMENSIONS.price(fill(makeListing({ features: { pricePercentile: 0.9 } })), p)
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), p)
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), p)
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+})
+
+describe('DIMENSIONS.value', () => {
+  it('同區百分位越低分數越高', () => {
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), profile())
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), profile())
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('與絕對單價無關：兩區各自墊底的物件得分相同', () => {
+    const daan = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tucheng = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(daan).toBe(tucheng)
+  })
+
+  it('有 budgetMax 也不改變公式（單調性不變量）', () => {
+    const p = profile({ hard: { budgetMax: 3000 } })
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), p)
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), p)
     expect(cheap).toBeGreaterThan(pricey)
   })
 })
@@ -143,9 +180,9 @@ describe('DIMENSIONS.quality', () => {
 })
 
 describe('DIMENSIONS 完整性', () => {
-  it('六個維度都存在且回傳有限數值', () => {
+  it('七個維度都存在且回傳有限數值', () => {
     const f = fill(makeListing())
-    for (const key of ['price', 'weather', 'location', 'amenities', 'space', 'quality'] as const) {
+    for (const key of ['price', 'value', 'weather', 'location', 'amenities', 'space', 'quality'] as const) {
       const v = DIMENSIONS[key](f, profile())
       expect(Number.isFinite(v)).toBe(true)
     }

@@ -2,6 +2,7 @@ export type Mode = 'sale' | 'rent'
 
 export type WeightKey =
   | 'price'
+  | 'value'
   | 'weather'
   | 'location'
   | 'amenities'
@@ -9,11 +10,12 @@ export type WeightKey =
   | 'quality'
 
 export const WEIGHT_KEYS: readonly WeightKey[] = [
-  'price', 'weather', 'location', 'amenities', 'space', 'quality',
+  'price', 'value', 'weather', 'location', 'amenities', 'space', 'quality',
 ] as const
 
 export const WEIGHT_LABELS: Record<WeightKey, string> = {
-  price: '房屋價位',
+  price: '房價可負擔',
+  value: '同區性價比',
   weather: '天氣環境',
   location: '地理位置',
   amenities: '生活機能',
@@ -59,7 +61,7 @@ export interface SearchProfile {
 
 export const DEFAULT_PROFILE: SearchProfile = {
   mode: 'sale',
-  weights: { price: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50 },
+  weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50 },
   hard: {},
   soft: {},
   notes: [],

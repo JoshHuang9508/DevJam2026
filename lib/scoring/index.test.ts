@@ -14,8 +14,8 @@ describe('normalizeWeights', () => {
   })
 
   it('全為 0 時退回等權', () => {
-    const w = normalizeWeights({ price: 0, weather: 0, location: 0, amenities: 0, space: 0, quality: 0 })
-    for (const k of WEIGHT_KEYS) expect(w[k]).toBeCloseTo(1 / 6, 10)
+    const w = normalizeWeights({ price: 0, value: 0, weather: 0, location: 0, amenities: 0, space: 0, quality: 0 })
+    for (const k of WEIGHT_KEYS) expect(w[k]).toBeCloseTo(1 / 7, 10)
   })
 
   it('負值先 clamp 到 0', () => {
@@ -33,7 +33,7 @@ describe('normalizeWeights', () => {
 describe('score', () => {
   /** A 便宜但機能差；B 貴但機能好 */
   const cheapPoorAmenities = makeListing({
-    id: 'A', district: '土城區', price: 800,
+    id: 'A', district: '土城區', price: 800, unitPrice: 31,
     features: {
       pricePercentile: 0.05,
       poiConvenience500: 1, poiConvenience1k: 2, poiSupermarket500: 0, poiSupermarket1k: 1,
@@ -42,7 +42,7 @@ describe('score', () => {
     },
   })
   const pricyRichAmenities = makeListing({
-    id: 'B', district: '大安區', price: 4000,
+    id: 'B', district: '大安區', price: 4000, unitPrice: 100,
     features: {
       pricePercentile: 0.95,
       poiConvenience500: 14, poiConvenience1k: 40, poiSupermarket500: 6, poiSupermarket1k: 18,

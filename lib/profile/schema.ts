@@ -11,6 +11,7 @@ const modeSchema = z.enum(['sale', 'rent'])
 // 不適合「使用者只提到部分維度」的情境，改用逐一列舉 key 的物件形式。
 const weightsShape = z.object({
   price: z.number().optional(),
+  value: z.number().optional(),
   weather: z.number().optional(),
   location: z.number().optional(),
   amenities: z.number().optional(),
@@ -90,6 +91,7 @@ const clampDelta = z
 
 const weightsDeltaSchema = z.object({
   price: clampDelta.optional(),
+  value: clampDelta.optional(),
   weather: clampDelta.optional(),
   location: clampDelta.optional(),
   amenities: clampDelta.optional(),
