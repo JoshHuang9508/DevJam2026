@@ -8,8 +8,12 @@ import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
 
 const STORAGE_KEY = 'housing-agent.profile.v1'
 
-/** 一個視角內最多回幾筆。DOM marker 在這個量級順暢。 */
-const MAP_LIMIT = 200
+/**
+ * 一個視角內最多回幾筆。
+ * 拿少一點是刻意的：使用者一次看不完 50 個圖釘，而想看更多的正確操作是
+ * 把地圖拉近，那本來就會重新查詢。資料庫有索引，多查幾次比一次塞滿便宜。
+ */
+const MAP_LIMIT = 50
 
 function loadStoredProfile(): SearchProfile {
   if (typeof window === 'undefined') return DEFAULT_PROFILE

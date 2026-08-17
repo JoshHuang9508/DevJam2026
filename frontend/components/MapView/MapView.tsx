@@ -66,8 +66,8 @@ function loadLibs(): Promise<Libs> {
 
 /**
  * 點位用 AdvancedMarkerElement 掛自訂 DOM，不用 data layer / 向量圖層。
- * 目前一次最多 100 筆（lib/scoring 的 MAX_RESULTS），這個量級用 DOM 還撐得住；
- * 再往上（或哪天顯示整個候選池）就要換成 marker clusterer。
+ * 一次最多 50 筆（useSearchState 的 MAP_LIMIT），視角一動就重取。
+ * 這個量級用 DOM 綽綽有餘；哪天要一次顯示整個候選池才需要 marker clusterer。
  */
 export function MapView({
   results, hoveredId, selectedId, onHover, onSelect, showCard = true,

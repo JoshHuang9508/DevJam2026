@@ -33,11 +33,11 @@ export function fillDataGaps(pool: ListingWithFeatures[]): FilledListing[] {
   const globalMedian = new Map<FeatureKey, number | null>()
   const districtMedian = new Map<string, number | null>()
   for (const key of keys) {
-    globalMedian.set(key, median(pool.map((l) => l.features[key]).filter((v): v is number => v !== null)))
+    globalMedian.set(key, median(pool.map((l) => l.features[key]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))))
     for (const [dk, group] of byDistrict) {
       districtMedian.set(
         `${dk}|${key}`,
-        median(group.map((l) => l.features[key]).filter((v): v is number => v !== null)),
+        median(group.map((l) => l.features[key]).filter((v): v is number => typeof v === 'number' && Number.isFinite(v))),
       )
     }
   }
@@ -47,7 +47,11 @@ export function fillDataGaps(pool: ListingWithFeatures[]): FilledListing[] {
     const features = {} as { [K in FeatureKey]: number }
     for (const key of keys) {
       const raw = listing.features[key]
-      if (raw !== null) {
+      // 非有限值一律當成缺值。型別上只會是 number | null，但實務上只要有一個
+      // 欄位對應錯掉（schema 漂移、手寫的 SQL、之後新增的欄位忘了填），這裡拿到的
+      // 就是 undefined，而 dimensions 裡的 Math.max(0, undefined) 會靜靜回 NaN，
+      // 整筆分數變 NaN、排序全毀，卻不會有任何錯誤訊息。
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
         features[key] = raw
         continue
       }

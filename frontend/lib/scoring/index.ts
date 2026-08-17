@@ -17,8 +17,12 @@ export const MAX_PER_DISTRICT = 5
  * 同一縣市最多幾筆。行政區那一層的配額擋不住這件事 —— 全台 368 個區、
  * 每區 5 筆的話，100 個名額仍然可能全被成交量最大的新北與桃園吃掉，
  * 其他 20 個縣市一筆都排不進來。同樣是取較大者，候選池只剩一兩個縣市時放寬。
+ *
+ * 寫成**比例**而不是絕對值：這個護欄的意思是「單一縣市最多佔四分之一」，
+ * 絕對值會隨著 limit 改變而失去意義 —— limit 從 100 降到 50 時，
+ * 固定的 25 就從「四分之一」變成「一半」，兩個縣市就能把結果吃光。
  */
-export const MAX_PER_CITY = 25
+export const CITY_SHARE = 0.25
 
 const clampWeight = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : v)
 
@@ -129,7 +133,7 @@ export function score(
   const districtCount = new Set(inView.map((r) => `${r.city}|${r.district}`)).size
   const cityCount = new Set(inView.map((r) => r.city)).size
   const perDistrictCap = Math.max(MAX_PER_DISTRICT, Math.ceil(maxResults / Math.max(districtCount, 1)))
-  const perCityCap = Math.max(MAX_PER_CITY, Math.ceil(maxResults / Math.max(cityCount, 1)))
+  const perCityCap = Math.max(Math.ceil(maxResults * CITY_SHARE), Math.ceil(maxResults / Math.max(cityCount, 1)))
 
   const perDistrict = new Map<string, number>()
   const perCity = new Map<string, number>()
