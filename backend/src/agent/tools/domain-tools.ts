@@ -4,6 +4,7 @@ import { preferencePatchSchema, type PreferencePatch } from "../../domain/prefer
 import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
 import { ListingsUnavailableError, type ListingsProvider } from "../../providers/listings/index.js";
 import { TwinkleUnavailableError, type TwinkleClient } from "../../providers/twinkle/index.js";
+import { WebSearchUnavailableError, type WebSearchProvider } from "../../providers/websearch/index.js";
 import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
 import type { PreferenceService } from "../../services/preference.service.js";
 import type { SessionService } from "../../services/session.service.js";
@@ -18,6 +19,7 @@ interface ToolDependencies {
   urbanPlan: UrbanPlanProvider;
   listings: ListingsProvider;
   twinkle: TwinkleClient | null;
+  webSearch: WebSearchProvider | null;
   publish: (event: AgentEvent) => void;
 }
 
@@ -167,6 +169,35 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       },
     },
     ...(deps.twinkle ? twinkleTools(deps.twinkle, textResult) : []),
+    ...(deps.webSearch ? [{
+      name: "web_search",
+      label: "網頁搜尋",
+      description:
+        "搜尋網路。用在**結構化資料答不出來**的問題：某個建案或社區的評價、這一區最近的新聞、" +
+        "重大建設或捷運延伸線進度、嫌惡設施爭議。物件的價格坪數屋齡機能一律用 rank_listings，不要用這個重查。" +
+        "回傳的是網路上的說法，不是查證過的事實 —— 引用時要標明出處連結，並說明那是網路資訊。",
+      parameters: Type.Object({
+        query: Type.String({ description: "搜尋字串。加上地名與年份會準很多，例如「台北市大安區 2026 都市更新」。" }),
+        maxResults: Type.Optional(Type.Number({ description: "回傳幾筆，1..8，預設 5。" })),
+        recentDays: Type.Optional(Type.Number({ description: "只要最近 N 天的新聞。問「最近有沒有…」時設 30 或 90。" })),
+      }),
+      execute: async (_id: unknown, params: unknown, signal?: AbortSignal) => {
+        const { query, maxResults, recentDays } = params as { query: string; maxResults?: number; recentDays?: number };
+        try {
+          return textResult(await deps.webSearch!.search({
+            query,
+            ...(maxResults ? { maxResults } : {}),
+            ...(recentDays ? { recentDays } : {}),
+            ...(signal ? { signal } : {}),
+          }));
+        } catch (error) {
+          if (error instanceof WebSearchUnavailableError) {
+            return textResult({ error: error.message, hint: "搜尋暫時不可用，照實告訴使用者，不要自己編造搜尋結果。" });
+          }
+          throw error;
+        }
+      },
+    } as AgentTool<any>] : []),
   ];
 }
 
@@ -266,7 +297,8 @@ const PATCH_SHAPE = [
   "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
   "softPreferences.amenities: weight, convenienceStore, supermarket, hospital, clinic, restaurant, school, park.",
   "softPreferences.geography: weight, urbanDensity, elevation, coastalPreference (-1..1).",
-  "listingPreferences: fengshuiWeight (0..1), avoidFengshui[] — 物件層級，不影響行政區排名，前端拿去排物件。",
+  "listingPreferences: fengshuiWeight (0..1), hazardWeight (0..1), avoidFengshui[] — 物件層級，不影響行政區排名，前端拿去排物件。",
+  "hazardWeight 是災害風險（附近淹水災點密度 + 土壤液化潛勢）的比重，預設 0.5。使用者說「怕淹水」「不要低窪」「在意土壤液化」就調高它。",
   "avoidFengshui only accepts: throughDraft 穿堂煞, stoveInSight 開門見灶, toiletFacingDoor 開門見廁,",
   "beamPressure 樑壓床, narrowHall 明堂狹窄, roadRush 路衝壁刀. It is a hard exclusion — see the fengshui rule in the system prompt.",
   "Every weight is 0..1. Omit whatever the user did not mention.",

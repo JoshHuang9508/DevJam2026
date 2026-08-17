@@ -123,6 +123,7 @@ const weightsShape = z.object({
   amenities: z.number().optional(),
   space: z.number().optional(),
   quality: z.number().optional(),
+  hazard: z.number().optional(),
   fengshui: z.number().optional(),
 })
 
@@ -220,6 +221,7 @@ const weightsDeltaSchema = z.object({
   amenities: clampDelta.optional(),
   space: clampDelta.optional(),
   quality: clampDelta.optional(),
+  hazard: clampDelta.optional(),
   fengshui: clampDelta.optional(),
 })
 

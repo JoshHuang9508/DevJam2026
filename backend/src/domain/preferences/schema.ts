@@ -55,12 +55,19 @@ const fengshuiIssue = z.enum([
 const listingPreferencesSchema = z.object({
   fengshuiWeight: weight,
   avoidFengshui: z.array(fengshuiIssue),
+  /**
+   * 災害風險（淹水災點密度 + 土壤液化潛勢）在排序裡的比重。
+   * 跟風水一樣放這裡而不是 softPreferences：那是**某一棟**附近有沒有淹過水，
+   * 不是整個行政區的性質，ranking engine 的五個 dimension 完全不讀它。
+   * 與風水不同的是它預設就有值 —— 淹水是客觀風險，不需要使用者 opt-in。
+   */
+  hazardWeight: weight,
 });
 
 export const preferenceStateSchema = z.object({
   version: z.number().int().positive().default(1),
   hardConstraints: hardConstraintsSchema,
-  listingPreferences: listingPreferencesSchema.default({ fengshuiWeight: 0, avoidFengshui: [] }),
+  listingPreferences: listingPreferencesSchema.default({ fengshuiWeight: 0, avoidFengshui: [], hazardWeight: 0.5 }),
   softPreferences: z.object({
     housing: z.object({
       weight,
@@ -107,7 +114,7 @@ export type PreferenceState = z.infer<typeof preferenceStateSchema>;
 export const defaultPreferenceState: PreferenceState = preferenceStateSchema.parse({
   hardConstraints: {},
   // 風水預設 0：信仰性偏好必須由使用者主動說出口才 opt-in，權重 0 對總分沒有貢獻。
-  listingPreferences: { fengshuiWeight: 0, avoidFengshui: [] },
+  listingPreferences: { fengshuiWeight: 0, avoidFengshui: [], hazardWeight: 0.5 },
   softPreferences: {
     housing: { weight: 0.5, preferLowerRent: 1 },
     climate: {

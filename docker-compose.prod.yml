@@ -35,6 +35,8 @@ services:
       # Twinkle Hub MCP（台灣政府開放資料聚合）。沒設就整組 tool 不註冊，
       # agent 看不到也就不會嘗試呼叫。
       TWINKLE_API_KEY: ${TWINKLE_API_KEY:-}
+      # Tavily 網頁搜尋。沒設就不註冊 web_search。
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
       REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1048576}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}

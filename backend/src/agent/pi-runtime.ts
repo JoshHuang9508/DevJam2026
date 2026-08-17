@@ -2,6 +2,7 @@ import { Agent, type AgentEvent as PiEvent } from "@earendil-works/pi-agent-core
 import { contentText } from "@earendil-works/pi-ai";
 import type { ListingsProvider } from "../providers/listings/index.js";
 import type { TwinkleClient } from "../providers/twinkle/index.js";
+import type { WebSearchProvider } from "../providers/websearch/index.js";
 import type { ProviderRegistry } from "../providers/types.js";
 import type { UrbanPlanProvider } from "../providers/urban-plan/types.js";
 import type { PreferenceService } from "../services/preference.service.js";
@@ -22,6 +23,7 @@ interface PiRuntimeOptions extends PiModelProviderConfig {
   urbanPlan: UrbanPlanProvider;
   listings: ListingsProvider;
   twinkle: TwinkleClient | null;
+  webSearch: WebSearchProvider | null;
 }
 
 export class PiAgentRuntime implements AgentRuntime {
@@ -39,6 +41,7 @@ export class PiAgentRuntime implements AgentRuntime {
       urbanPlan: this.options.urbanPlan,
       listings: this.options.listings,
       twinkle: this.options.twinkle,
+      webSearch: this.options.webSearch,
       publish: (event) => queue.push(event),
     });
     const agent = new Agent({

@@ -133,6 +133,8 @@ export interface HardConstraints {
 export interface ListingPreferences {
   /** 0..1，對應前端 weights.fengshui 的 0..100 */
   fengshuiWeight: number
+  /** 災害風險（淹水災點 + 土壤液化）在物件排序裡的比重。 */
+  hazardWeight?: number
   avoidFengshui: FengshuiIssueKey[]
 }
 

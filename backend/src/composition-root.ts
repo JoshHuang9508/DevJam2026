@@ -7,6 +7,7 @@ import { InMemorySessionRepository, PostgresSessionRepository } from "./database
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
 import { createListingsProvider } from "./providers/listings/index.js";
 import { createTwinkleClient } from "./providers/twinkle/index.js";
+import { createWebSearchProvider } from "./providers/websearch/index.js";
 import { createUrbanPlanProvider } from "./providers/urban-plan/index.js";
 import { AgentService } from "./services/agent.service.js";
 import { PreferenceService } from "./services/preference.service.js";
@@ -30,6 +31,9 @@ export async function createApplication(config: AppConfig) {
   const twinkle = config.TWINKLE_API_KEY
     ? createTwinkleClient({ baseUrl: config.TWINKLE_MCP_URL, apiKey: config.TWINKLE_API_KEY, timeoutMs: config.TWINKLE_TIMEOUT_MS })
     : null;
+  const webSearch = config.TAVILY_API_KEY
+    ? createWebSearchProvider({ apiKey: config.TAVILY_API_KEY, timeoutMs: config.WEB_SEARCH_TIMEOUT_MS })
+    : null;
   const preferences = new PreferenceService(sessions);
   const recommendations = new RecommendationService(sessions, providers);
   let runtime: AgentRuntime;
@@ -47,6 +51,7 @@ export async function createApplication(config: AppConfig) {
       urbanPlan,
       listings,
       twinkle,
+      webSearch,
       ...(selectedApiKey ? { apiKey: selectedApiKey } : {}),
       ...(config.PI_PROVIDER === "custom-openai" ? {
         custom: {

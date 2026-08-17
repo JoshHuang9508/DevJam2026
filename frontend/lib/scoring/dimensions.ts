@@ -148,8 +148,28 @@ const quality: DimensionFn = (f, p) => {
  * 理由見 fengshuiSubscore 的註解：旗標欄位的中位數補值會把「未檢測」變成「無虞」，
  * 讓沒有格局圖的物件排到最前面。未檢測在這裡以中性風險計入，不獎勵也不懲罰。
  */
+/**
+ * 災害風險。分數越高越安全。
+ *
+ * 淹水用**近五年實際淹水災點**而不是水利署的淹水潛勢圖：潛勢圖的使用條款明文寫
+ * 「不得援引作為土地使用管制或土地開發限制的判定依據」，拿來扣某一戶的分數是踩線的；
+ * 歷史災點沒有這個限制，而且對「這附近淹過水嗎」這個問題更直接。
+ *
+ * 兩項都是「未檢測不等於無虞」：缺值由 fillDataGaps 補中位數並記進 dataGaps，
+ * 卡片上會標示，不會讓沒圖資的地區憑空拿到滿分。
+ */
+const FLOOD_SATURATE = 8
+const hazard: DimensionFn = (f) => {
+  const x = f.features
+  // 500m 內 8 個以上災點就當成最差，再多的差異對決策沒有意義
+  const flood = 1 - clamp01(x.floodIncidents500 / FLOOD_SATURATE)
+  // 1 低 / 2 中 / 3 高 → 1 / 0.5 / 0
+  const liquefaction = 1 - clamp01((x.liquefactionLevel - 1) / 2)
+  return flood * 0.65 + liquefaction * 0.35
+}
+
 const fengshui: DimensionFn = (f) => fengshuiSubscore(f.listing.features)
 
 export const DIMENSIONS: Record<WeightKey, DimensionFn> = {
-  price, value, weather, location, amenities, space, quality, fengshui,
+  price, value, weather, location, amenities, space, quality, hazard, fengshui,
 }

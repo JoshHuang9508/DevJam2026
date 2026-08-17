@@ -166,6 +166,7 @@ async function main(): Promise<void> {
       poi_park_500, poi_park_1k, poi_restaurant_500, poi_restaurant_1k,
       dist_to_metro, dist_to_train, dist_to_bus, commute_to_cbd_min,
       district_median_unit_price, price_percentile, dist_to_main_road, dist_to_rail,
+      flood_incidents_500, liquefaction_level,
       fs_entry_window_aligned, fs_entry_screen, fs_stove_visible_from_door, fs_toilet_facing_door,
       fs_beam_over_bed, fs_living_room_depth_m, fs_daylight_blocked, fs_road_rush
     ) VALUES (
@@ -173,6 +174,7 @@ async function main(): Promise<void> {
       @c5, @c1k, @s5, @s1k, @sc5, @sc1k, @h5, @h1k, @p5, @p1k, @r5, @r1k,
       @distToMetro, @distToTrain, @distToBus, @commuteToCbdMin,
       @districtMedianUnitPrice, @pricePercentile, @distToMainRoad, @distToRail,
+      @floodIncidents500, @liquefactionLevel,
       NULL, NULL, NULL, NULL, NULL, NULL, NULL, @fsRoadRush
     )`)
 
@@ -268,13 +270,15 @@ async function main(): Promise<void> {
         pricePercentile: percentile(bucket, record.unitPrice),
 
         distToMainRoad: null,
-        // 淹水災點密度暫時借用「路衝」這個既有欄位是不對的，所以留 null；
-        // 真正要用得先在 schema 開一個 hazard 欄位。
         distToRail: null,
         fsRoadRush: null,
+
+        // null 與 0 的差別很重要：null＝沒查（沒抓災點資料），0＝查過但附近沒有。
+        // 前者會被 fillDataGaps 補中位數並標進 dataGaps，後者是真的安全。
+        floodIncidents500: flood.length ? floodNearby : null,
+        // 土壤液化只有臺北市有圖資，其餘一律 null＝未檢測，不是「無虞」。
+        liquefactionLevel: liquefaction3,
       })
-      void floodNearby
-      void liquefaction3
     }
   })
 

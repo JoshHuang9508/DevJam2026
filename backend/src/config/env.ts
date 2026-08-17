@@ -37,6 +37,9 @@ const envSchema = z.object({
   TWINKLE_API_KEY: z.string().optional(),
   TWINKLE_MCP_URL: z.string().url().default("https://api.twinkleai.tw/mcp/"),
   TWINKLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
+  // Tavily 網頁搜尋。沒有金鑰就不註冊 web_search，agent 看不到也就不會呼叫。
+  TAVILY_API_KEY: z.string().optional(),
+  WEB_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:5173"),
   REQUEST_BODY_LIMIT: z.coerce.number().int().positive().default(1_048_576),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
