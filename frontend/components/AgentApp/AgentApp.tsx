@@ -339,13 +339,16 @@ export function AgentApp() {
         }`}
       >
 
-        <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
-          {s.loading && <span className="text-neutral-400">排序中…</span>}
-          {s.error && <span className="text-red-600">{s.error}</span>}
-          {status && !status.listingsDb && (
-            <span className="text-amber-700">物件資料庫未建立，請執行 pnpm db:push &amp;&amp; pnpm db:seed</span>
-          )}
-        </div>
+        {/* 三個訊息都沒有時整條不掛載 —— 空的 div 仍有 py-2 與底線，會在地圖上方留一條白帶 */}
+        {(s.loading || s.error !== null || (status !== null && !status.listingsDb)) && (
+          <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
+            {s.loading && <span className="text-neutral-400">排序中…</span>}
+            {s.error && <span className="text-red-600">{s.error}</span>}
+            {status && !status.listingsDb && (
+              <span className="text-amber-700">物件資料庫未建立，請執行 pnpm db:push &amp;&amp; pnpm db:seed</span>
+            )}
+          </div>
+        )}
 
         {s.relaxations.length > 0 && (
           <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
