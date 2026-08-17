@@ -59,7 +59,7 @@ export function ListingCard({ listing, rank, hovered, selected, onHover, onSelec
         </div>
         <div className="shrink-0 text-right">
           <p className="text-xl font-bold leading-none tabular-nums text-neutral-900">
-            {scorePercent(listing.score)}
+            {scorePercent(listing.score)} 分
           </p>
           <p className="text-[11px] text-neutral-500">
             {listing.dataGaps.length > 0 ? `補 ${listing.dataGaps.length} 項` : '資料完整'}
