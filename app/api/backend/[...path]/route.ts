@@ -15,8 +15,19 @@ export const dynamic = 'force-dynamic'
  *   /api/backend/sessions/<id>/messages -> SSE，逐 token 轉發不緩衝
  *
  * 注意：這條路由沒有任何驗證或速率限制，等於把整個後端公開出去。
- * 僅供本地 demo，見 README 的部署警告。
+ * 因此正式環境預設關閉，需要時才用 ENABLE_BACKEND_PROXY=true 打開。
+ * 見 README 的部署警告。
  */
+
+/**
+ * dev 預設開啟（tunnel 要用），production 預設關閉。
+ * 兩者都可以用 ENABLE_BACKEND_PROXY 明確覆寫。
+ */
+function proxyEnabled(): boolean {
+  const flag = process.env.ENABLE_BACKEND_PROXY
+  if (flag !== undefined) return flag === 'true' || flag === '1'
+  return process.env.NODE_ENV !== 'production'
+}
 
 // hop-by-hop 與長度相關的標頭不能原樣轉發，否則會與實際傳輸不符
 const STRIP = new Set([
@@ -34,6 +45,16 @@ function forwardHeaders(source: Headers): Headers {
 }
 
 async function proxy(request: Request, path: string[]): Promise<Response> {
+  if (!proxyEnabled()) {
+    return Response.json(
+      {
+        error: 'PROXY_DISABLED',
+        message: '後端代理在正式環境預設關閉。需要時設定 ENABLE_BACKEND_PROXY=true。',
+      },
+      { status: 404 },
+    )
+  }
+
   const incoming = new URL(request.url)
   const target = `${BACKEND_URL}/${path.join('/')}${incoming.search}`
 

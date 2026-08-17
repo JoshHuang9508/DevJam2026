@@ -1,0 +1,95 @@
+name: Deploy
+
+# main 上 CI 全綠才部署。手動觸發也可以（部署失敗要重跑時用）。
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 部署到正式機
+    runs-on: ubuntu-latest
+    # workflow_run 會在 CI 失敗時也觸發，必須自己過濾
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment: production
+    steps:
+      - name: 設定 SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # 固定主機指紋，避免中間人；指紋來自 DEPLOY_SSH_KNOWN_HOSTS secret
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: 部署
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          APP_DIR: ${{ secrets.DEPLOY_APP_DIR || '/opt/anjia' }}
+        run: |
+          # heredoc 用單引號括住 delimiter，內容不會被 runner 展開；
+          # 因此要透過 ssh 的指令字串把 APP_DIR 帶到遠端環境。
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$USER@$HOST" \
+            "APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+
+          echo "==> 取得 main 最新版本"
+          git fetch --prune origin
+          git reset --hard origin/main
+
+          echo "==> 重建並啟動"
+          # --remove-orphans：compose 服務改名時清掉舊容器
+          docker compose -f docker-compose.prod.yml --env-file .env.prod \
+            up -d --build --remove-orphans
+
+          echo "==> 等待健康檢查"
+          for i in $(seq 1 40); do
+            if [ "$(docker compose -f docker-compose.prod.yml ps --format json \
+                 | grep -c '"Health":"healthy"' || true)" -ge 2 ]; then
+              echo "兩個服務都 healthy"
+              break
+            fi
+            if [ "$i" = "40" ]; then
+              echo "!! 健康檢查逾時，印出日誌"
+              docker compose -f docker-compose.prod.yml logs --tail=80
+              exit 1
+            fi
+            sleep 3
+          done
+
+          echo "==> 清掉沒被引用的舊映像檔"
+          docker image prune -f
+
+          docker compose -f docker-compose.prod.yml ps
+          REMOTE
+
+      - name: 對外煙霧測試
+        env:
+          ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}
+        run: |
+          set -e
+          echo "==> GET /"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$ORIGIN/")
+          echo "  HTTP $code"
+          [ "$code" = "200" ]
+
+          echo "==> GET /api/agent/session"
+          body=$(curl -s --max-time 30 "$ORIGIN/api/agent/session")
+          echo "  $body"
+          echo "$body" | grep -q '"backendUp":true'
+
+          echo "==> GET /classic"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$ORIGIN/classic")
+          echo "  HTTP $code"
+          [ "$code" = "200" ]

@@ -1,0 +1,60 @@
+# 正式環境：只有前端對外，後端只存在於 compose 內網。
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# 後端刻意不寫 ports: —— 一旦發布到主機，35.236.161.192:3001 就會是一個
+# 完全沒有驗證的 API。前端透過 service name 連它就好。
+
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3001"
+      REPOSITORY_MODE: memory
+      # 沒有設定任何 model provider 時會退回 deterministic-fallback（規則式），
+      # 不會壞掉，只是不會真的理解自然語言。要接 LLM 就在 .env.prod 填。
+      AGENT_MODE: ${AGENT_MODE:-auto}
+      PI_PROVIDER: ${PI_PROVIDER:-google}
+      PI_MODEL: ${PI_MODEL:-gemini-2.5-flash}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      CUSTOM_OPENAI_BASE_URL: ${CUSTOM_OPENAI_BASE_URL:-http://127.0.0.1:8080/v1}
+      CUSTOM_OPENAI_API_KEY: ${CUSTOM_OPENAI_API_KEY:-}
+      CUSTOM_OPENAI_MODEL_NAME: ${CUSTOM_OPENAI_MODEL_NAME:-Custom OpenAI-compatible model}
+      # 前端在同一個 compose 網段呼叫，CORS 只要允許對外的來源
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://35.236.161.192}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      BACKEND_URL: http://backend:3001
+      # /api/backend/* 是後端的無驗證全方法代理。正式環境預設關閉；
+      # 要開 Swagger 給人看再設成 true，並且看完就關掉。
+      ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
+    ports:
+      # 只有這一個 port 對外
+      - "80:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
