@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
 import { rankColor, scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
+import { animateCamera } from './animateCamera'
 import { MapCard } from './MapCard'
 import {
   DEFAULT_CENTER,
@@ -12,6 +13,7 @@ import {
   GOOGLE_MAPS_API_KEY,
   GOOGLE_MAPS_MAP_ID,
   MAX_FIT_ZOOM,
+  SELECT_ZOOM,
 } from './mapStyle'
 
 /** 圖示直徑（px）。前三名放大一階當視覺提示，hover／選取再放大一階。 */
@@ -69,6 +71,8 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
   const markersRef = useRef<
     Map<string, { marker: google.maps.marker.AdvancedMarkerElement; el: HTMLButtonElement }>
   >(new Map())
+  // 進行中的相機動畫的取消函式
+  const cancelCameraRef = useRef<(() => void) | null>(null)
   // 事件處理器放 ref，marker 才不需要因為 props 變動而重建
   const onHoverRef = useRef(onHover)
   const onSelectRef = useRef(onSelect)
@@ -102,6 +106,10 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
           center: DEFAULT_CENTER,
           zoom: DEFAULT_ZOOM,
           mapId: GOOGLE_MAPS_MAP_ID,
+          // vector + fractional zoom 才能把 zoom 連續插值；raster 會把中間的小數 zoom
+          // 夾成整數，animateCamera 的縮放就變成一格一格跳。
+          renderingType: google.maps.RenderingType.VECTOR,
+          isFractionalZoomEnabled: true,
           disableDefaultUI: true,
           zoomControl: true,
           zoomControlOptions: { position: google.maps.ControlPosition.TOP_RIGHT },
@@ -113,6 +121,11 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
         // 點空白處清除選取。Google 的 marker 點擊不會冒泡成 map 的 click，
         // 所以點在 marker 上不會把剛選到的物件立刻取消。
         instance.addListener('click', () => onSelectRef.current(null))
+
+        // 使用者一動手就放掉相機動畫，否則自己的拖曳／縮放會被動畫每一幀拉回去
+        const stop = () => { cancelCameraRef.current?.(); cancelCameraRef.current = null }
+        instance.addListener('dragstart', stop)
+        mapDiv.addEventListener('wheel', stop, { passive: true })
 
         // 螢幕座標換算用 OverlayView 取 projection，Maps API 沒有等價的 map.project()
         const overlay = new libs.OverlayView()
@@ -209,16 +222,17 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
     })
   }, [hoveredId, selectedId, results])
 
-  // 選取 → 放大置中
+  // 選取 → 平滑移動並放大置中。center 與 zoom 一起插值，不用 panTo + setZoom：
+  // 那組合是「補間平移」後接「瞬間縮放」，切物件時會看到兩段式的跳動。
   useEffect(() => {
     if (!map || !selectedId) return
     const target = results.find((r) => r.id === selectedId)
     if (!target) return
-    const center = { lat: target.lat, lng: target.lng }
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduced) map.setCenter(center)
-    else map.panTo(center)
-    map.setZoom(15)
+    // 已經比 SELECT_ZOOM 近就維持現況：使用者自己放大過，再被拉遠回 15 很錯亂
+    const zoom = Math.max(map.getZoom() ?? SELECT_ZOOM, SELECT_ZOOM)
+    cancelCameraRef.current?.()
+    cancelCameraRef.current = animateCamera(map, { center: { lat: target.lat, lng: target.lng }, zoom })
+    return () => { cancelCameraRef.current?.(); cancelCameraRef.current = null }
   }, [map, selectedId, results])
 
   // 卡片錨點：相機一動就重算螢幕座標。用 requestAnimationFrame 節流 —— bounds_changed
