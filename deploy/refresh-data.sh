@@ -41,7 +41,9 @@ $COMPOSE restart web
 
 echo "==> 等待 healthy"
 for i in $(seq 1 20); do
-  if $COMPOSE ps --format json | grep -q '"Service":"web".*"Health":"healthy"'; then
+  # 用 template 而不是 --format json：json 的欄位是照字母排的，Health 排在 Service
+  # 前面，所以 '"Service":"web".*"Health":"healthy"' 這種寫法永遠不會 match。
+  if $COMPOSE ps --format '{{.Service}} {{.Status}}' | grep -q '^web .*healthy'; then
     echo "web healthy"
     break
   fi
