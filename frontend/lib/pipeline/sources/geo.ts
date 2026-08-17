@@ -43,14 +43,18 @@ const OVERPASS_ENDPOINT = 'https://overpass-api.de/api/interpreter'
  * 一次把臺北市 + 新北市的六類 POI 抓回來。
  *
  * 政府的超商／超市資料只有地址沒有座標（財政部稅籍檔），學校與醫療機構也一樣，
- * 全部都得再送去 geocode。OSM 一次呼叫就給座標，實測兩市六類約 9,600 個點。
+ * 全部都得再送去 geocode。OSM 一次呼叫就給座標。
+ *
+ * **範圍必須涵蓋所有有物件的縣市。** 原本只查雙北，結果非雙北的物件每一項 POI
+ * 都拿到 0 —— 那不是「附近沒有超商」，是「我根本沒查那裡」，但分數算不出這個差別，
+ * 於是高雄台中的房子在生活機能維度上全部墊底。這種錯不會報錯，只會安靜地排錯。
  *
  * 授權要注意：OSM 是 ODbL，share-alike 比政府那套 CC-BY 嚴格，且必須標示
  * 「© OpenStreetMap contributors」。
  */
 const OVERPASS_QUERY = `
-[out:json][timeout:180];
-area["boundary"="administrative"]["admin_level"="4"]["name:zh"~"臺北市|新北市"]->.a;
+[out:json][timeout:600];
+area["boundary"="administrative"]["admin_level"="4"]["name:zh"~"臺北市|新北市|基隆市|桃園市|新竹市|新竹縣|苗栗縣|臺中市|彰化縣|南投縣|雲林縣|嘉義市|嘉義縣|臺南市|高雄市|屏東縣|宜蘭縣|花蓮縣|臺東縣|澎湖縣|金門縣|連江縣"]->.a;
 (
   nwr["shop"="convenience"](area.a);
   nwr["shop"="supermarket"](area.a);
@@ -87,7 +91,7 @@ export async function fetchPoi(cacheDir: string): Promise<PoiIndex> {
         'user-agent': 'anjia-housing-agent/0.1 (data pipeline; contact via github.com/JoshHuang9508/DevJam2026)',
       },
       body: `data=${encodeURIComponent(OVERPASS_QUERY)}`,
-      signal: AbortSignal.timeout(240_000),
+      signal: AbortSignal.timeout(900_000),
     })
     if (!response.ok) throw new Error(`Overpass ${response.status} ${response.statusText}`)
     raw = await response.text()

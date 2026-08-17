@@ -117,6 +117,13 @@ async function main(): Promise<void> {
   const climate = wants('climate') ? await fetchClimateStations(CACHE_DIR, process.env.CWA_API_KEY).catch(fail('氣候')) : []
   const aqi = wants('aqi') ? await fetchAqiStations(CACHE_DIR, process.env.MOENV_API_KEY).catch(fail('空品')) : []
 
+  // 每一類 POI 各自的覆蓋範圍。用實際抓到的點推，而不是相信查詢字串寫了什麼。
+  const coverage = {
+    convenience: bboxOf(poi.convenience), supermarket: bboxOf(poi.supermarket),
+    school: bboxOf(poi.school), hospital: bboxOf(poi.hospital),
+    park: bboxOf(poi.park), restaurant: bboxOf(poi.restaurant),
+  }
+
   const grids = {
     convenience: new GridIndex(poi.convenience),
     supermarket: new GridIndex(poi.supermarket),
@@ -247,18 +254,18 @@ async function main(): Promise<void> {
         sunHours: climateStation?.sunHours ?? null,
         aqiMean: aqiStation?.aqi ?? null,
 
-        c5: count(grids.convenience, point, 500, poi.convenience.length),
-        c1k: count(grids.convenience, point, 1000, poi.convenience.length),
-        s5: count(grids.supermarket, point, 500, poi.supermarket.length),
-        s1k: count(grids.supermarket, point, 1000, poi.supermarket.length),
-        sc5: count(grids.school, point, 500, poi.school.length),
-        sc1k: count(grids.school, point, 1000, poi.school.length),
-        h5: count(grids.hospital, point, 500, poi.hospital.length),
-        h1k: count(grids.hospital, point, 1000, poi.hospital.length),
-        p5: count(grids.park, point, 500, poi.park.length),
-        p1k: count(grids.park, point, 1000, poi.park.length),
-        r5: count(grids.restaurant, point, 500, poi.restaurant.length),
-        r1k: count(grids.restaurant, point, 1000, poi.restaurant.length),
+        c5: count(grids.convenience, point, 500, coverage.convenience),
+        c1k: count(grids.convenience, point, 1000, coverage.convenience),
+        s5: count(grids.supermarket, point, 500, coverage.supermarket),
+        s1k: count(grids.supermarket, point, 1000, coverage.supermarket),
+        sc5: count(grids.school, point, 500, coverage.school),
+        sc1k: count(grids.school, point, 1000, coverage.school),
+        h5: count(grids.hospital, point, 500, coverage.hospital),
+        h1k: count(grids.hospital, point, 1000, coverage.hospital),
+        p5: count(grids.park, point, 500, coverage.park),
+        p1k: count(grids.park, point, 1000, coverage.park),
+        r5: count(grids.restaurant, point, 500, coverage.restaurant),
+        r1k: count(grids.restaurant, point, 1000, coverage.restaurant),
 
         distToMetro: distToMetro === null ? null : round(distToMetro / 1000, 3),
         // 台鐵／公車站要 TDX（需申請帳號審核），還沒接，留 null 讓 dataGaps 標示
@@ -314,8 +321,35 @@ function jitter(centroid: Point, address: string): Point {
   return { lat: centroid.lat + (a - 0.5) * 0.012, lng: centroid.lng + (b - 0.5) * 0.012 }
 }
 
-function count(grid: GridIndex, point: Point, radius: number, poolSize: number): number | null {
-  return poolSize === 0 ? null : grid.countWithin(point, radius)
+/**
+ * POI 計數。**範圍外一律回 null 而不是 0。**
+ *
+ * 0 的意思是「查過，附近沒有」；null 是「沒查」。兩者在分數上天差地別 ——
+ * 0 會讓那筆在生活機能維度拿最低分，null 則由 fillDataGaps 補中位數並標進 dataGaps。
+ * 之前 POI 只涵蓋雙北卻對全台回 0，高雄台中的房子就全部被判定成沒有生活機能。
+ */
+function count(grid: GridIndex, point: Point, radius: number, coverage: Bbox | null): number | null {
+  if (!coverage || !inBbox(point, coverage)) return null
+  return grid.countWithin(point, radius)
+}
+
+interface Bbox { minLat: number; maxLat: number; minLng: number; maxLng: number }
+
+/** 實際抓到的 POI 所涵蓋的範圍。留一點邊，免得邊界上的物件被誤判成沒查過。 */
+function bboxOf(points: Point[], padDeg = 0.05): Bbox | null {
+  if (points.length === 0) return null
+  let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity
+  for (const p of points) {
+    if (p.lat < minLat) minLat = p.lat
+    if (p.lat > maxLat) maxLat = p.lat
+    if (p.lng < minLng) minLng = p.lng
+    if (p.lng > maxLng) maxLng = p.lng
+  }
+  return { minLat: minLat - padDeg, maxLat: maxLat + padDeg, minLng: minLng - padDeg, maxLng: maxLng + padDeg }
+}
+
+function inBbox(p: Point, b: Bbox): boolean {
+  return p.lat >= b.minLat && p.lat <= b.maxLat && p.lng >= b.minLng && p.lng <= b.maxLng
 }
 
 /**
