@@ -40,6 +40,11 @@ export function applyHardFilter(
     if (h.buildingTypes?.length && !h.buildingTypes.includes(l.buildingType)) return false
     if (h.needElevator && !l.hasElevator) return false
     if (h.needParking && !l.hasParking) return false
+    // 「靠近土城」這類條件。座標是必填欄位（實價登錄每筆都 geocode 過），
+    // 所以這裡不需要缺值豁免。
+    if (h.near) {
+      if (haversineKm(l.lat, l.lng, h.near.lat, h.near.lng) > h.near.radiusKm) return false
+    }
     if (h.maxDistToMetro !== undefined) {
       const d = l.features.distToMetro
       if (d !== null && d > h.maxDistToMetro) return false
@@ -56,4 +61,14 @@ export function applyHardFilter(
     }
     return true
   })
+}
+
+/** 兩點間大圓距離（公里）。 */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLng = toRad(lng2 - lng1)
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(a))
 }

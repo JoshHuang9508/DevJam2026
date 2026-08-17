@@ -69,6 +69,12 @@ export interface HardConstraints {
   needElevator?: boolean
   needParking?: boolean
   maxDistToMetro?: number
+  /**
+   * 「靠近某地」。使用者很少完整講出行政區名 ——「高雄附近」「靠近土城」「南部就好」
+   * 都是常見說法。地標由後端用 districts 表的真實重心解析成座標，**不讓模型自己生**，
+   * 那是最容易產生幻覺的地方（模型很敢給一組看起來合理但差幾十公里的經緯度）。
+   */
+  near?: { lat: number; lng: number; radiusKm: number; label?: string }
   /** 使用者明確表示要避開的風水忌諱 */
   avoidFengshui?: FengshuiIssueKey[]
 }

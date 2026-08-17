@@ -156,6 +156,13 @@ const hardSchema = z.object({
   needElevator: z.boolean().optional(),
   needParking: z.boolean().optional(),
   maxDistToMetro: nonNegative.optional(),
+  near: z.object({
+    lat: z.number().min(20).max(27),
+    lng: z.number().min(118).max(123),
+    radiusKm: z.number().positive().max(200),
+    label: z.string().optional(),
+  }).optional(),
+
   // 收 string 而非 enum：模型吐中文名或亂寫時，enum 會讓整個 hard 解析失敗，
   // 這裡改成先收下再正規化，未知值單獨丟棄，其餘條件照常保留。
   // 長度上限刻意放寬到遠大於 6：.max() 在 transform 之前跑，若卡在 6，模型吐出重複值或
@@ -231,6 +238,13 @@ const hardDeltaSchema = z.object({
   needElevator: z.boolean().nullable().optional(),
   needParking: z.boolean().nullable().optional(),
   maxDistToMetro: nonNegative.nullable().optional(),
+  near: z.object({
+    lat: z.number().min(20).max(27),
+    lng: z.number().min(118).max(123),
+    radiusKm: z.number().positive().max(200),
+    label: z.string().nullable().optional(),
+  }).nullable().optional(),
+
   // 上限同 hardSchema：卡在 6 會讓整包 delta 解析失敗，使用者同一句話裡講的其他條件一併消失
   avoidFengshui: z
     .array(z.string().min(1))

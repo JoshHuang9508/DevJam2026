@@ -40,6 +40,10 @@ export interface RankListingsResult {
   total: number;
   relaxations: string[];
   listings: RankedListing[];
+  /** 地名被解析成什麼（含實際採用的半徑）。null 代表沒指定地點。 */
+  resolvedPlace?: { lat: number; lng: number; radiusKm: number; label: string } | null;
+  /** 有指定地點但查不到時，原樣回傳讓 agent 照實說找不到。 */
+  unresolvedPlace?: string;
 }
 
 export interface RankListingsInput {
@@ -48,6 +52,8 @@ export interface RankListingsInput {
   preferences: PreferenceState;
   mode?: "sale" | "rent";
   limit?: number;
+  /** 模糊地點。只給地名，座標由前端查 districts 表解析 —— 模型不得自己生經緯度。 */
+  near?: { place: string; radiusKm?: number };
   signal?: AbortSignal;
 }
 
@@ -105,6 +111,7 @@ export function createListingsProvider(options: { baseUrl: string; timeoutMs: nu
             preferences: input.preferences,
             mode: input.mode,
             limit: input.limit,
+            near: input.near,
           }),
           signal,
         });

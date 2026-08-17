@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { areaCoverageNote, listingsDbAvailable } from '@/lib/backend/listings'
+import { resolvePlace } from '@/lib/backend/place-anchor'
 import { toSearchProfile } from '@/lib/backend/profile-bridge'
 import { recallProfile } from '@/lib/backend/profile-cache'
 import type { PreferenceState } from '@/lib/backend/types'
@@ -30,6 +31,8 @@ interface Body {
   preferences?: PreferenceState
   mode?: Mode
   limit?: number
+  /** 模糊地點，例如「土城」「高雄」「南部」。座標由後端查表解析，不由模型提供。 */
+  near?: { place?: string; radiusKm?: number }
   /** 用來取回這個 session 的 client profile 當 base，讓 agent 的排名與畫面一致。 */
   sessionId?: string
 }
@@ -60,6 +63,20 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const profile = toSearchProfile(body.preferences, { ...base, mode })
 
+    // 「靠近土城」「高雄附近」這類模糊地點。座標一律查 districts 表的真實重心解析，
+    // 不讓模型自己給經緯度 —— 那種錯誤不會報錯，只會安靜地回傳錯誤區域的房子。
+    // 解析不到就照實回報 unresolvedPlace，不硬猜一個地方。
+    let anchor: ReturnType<typeof resolvePlace> = null
+    if (body.near?.place) {
+      anchor = resolvePlace(body.near.place, body.near.radiusKm)
+      if (anchor) {
+        profile.hard = {
+          ...profile.hard,
+          near: { lat: anchor.lat, lng: anchor.lng, radiusKm: anchor.radiusKm, label: anchor.label },
+        }
+      }
+    }
+
     // 使用者指定的地區查不到就照實說，不再偷偷改成不限行政區 —— 那會讓 agent 拿著
     // 一堆別區的物件去回答「大安區有什麼」，比回答查不到更糟。
     const coverage = areaCoverageNote(mode, profile.hard)
@@ -71,6 +88,9 @@ export async function POST(request: Request): Promise<Response> {
       mode,
       total: results.length,
       relaxations: [...notes, ...relaxations],
+      // 讓 agent 知道地點被解析成什麼，才講得出「以新北市土城區為中心 5 公里內」
+      resolvedPlace: anchor,
+      unresolvedPlace: body.near?.place && !anchor ? body.near.place : undefined,
       weights: profile.weights,
       // agent 要能講出「我是在哪個範圍裡找的」，尤其是地區這種不會被放寬的條件
       hardConstraints: profile.hard,

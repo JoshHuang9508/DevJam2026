@@ -111,9 +111,20 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       parameters: Type.Object({
         mode: Type.Optional(Type.String({ description: "sale（買賣）或 rent（租賃）。省略時沿用預設。" })),
         limit: Type.Optional(Type.Number({ description: "回傳幾筆，1..20，預設 8。" })),
+        nearPlace: Type.Optional(Type.String({
+          description:
+            "使用者講的地點，原樣傳入即可：「土城」「高雄」「南部」「大安」都可以，不必補上區/市/縣。" +
+            "座標由系統查 districts 表解析，**絕對不要自己提供經緯度**。查不到會在 unresolvedPlace 回報，" +
+            "那時要照實說找不到這個地方，不要改推薦別的地區。",
+        })),
+        nearRadiusKm: Type.Optional(Type.Number({
+          description: "搜尋半徑（公里）。省略時依地點層級自動決定：行政區 5、縣市 20、區域 80。",
+        })),
       }),
       execute: async (_id, params, signal) => {
-        const { mode, limit } = params as { mode?: string; limit?: number };
+        const { mode, limit, nearPlace, nearRadiusKm } = params as {
+          mode?: string; limit?: number; nearPlace?: string; nearRadiusKm?: number;
+        };
         if (mode !== undefined && mode !== "sale" && mode !== "rent") {
           throw new Error(`mode 只接受 "sale" 或 "rent"；收到「${mode}」。`);
         }
@@ -124,6 +135,7 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
             preferences: session.preferences,
             ...(mode ? { mode } : {}),
             ...(limit ? { limit } : {}),
+            ...(nearPlace ? { near: { place: nearPlace, ...(nearRadiusKm ? { radiusKm: nearRadiusKm } : {}) } } : {}),
             ...(signal ? { signal } : {}),
           });
           // 0 筆是常見且有意義的結果（條件太嚴），不是錯誤 —— 讓 agent 拿著
