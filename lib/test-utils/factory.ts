@@ -13,6 +13,17 @@ export function makeFeatures(o: Partial<ListingFeatures> = {}): ListingFeatures 
     distToMetro: 600, distToTrain: 2000, distToBus: 150, commuteToCbdMin: 25,
     districtMedianUnitPrice: 70, pricePercentile: 0.5,
     distToMainRoad: 300, distToRail: 1200,
+    // 風水預設一律「已檢測且無虞」：旗標 0、縱深 4.0（> 3.6 公尺門檻）。
+    // 這樣既有測試不必逐一列出八個 fs* 欄位，且風水維度 subscore 恆為 1，
+    // 不會反過來汙染那些只想測氣候／機能／預算的斷言。要測命中就在 features override 裡開旗標。
+    fsEntryWindowAligned: 0,
+    fsEntryScreen: 0,
+    fsStoveVisibleFromDoor: 0,
+    fsToiletFacingDoor: 0,
+    fsBeamOverBed: 0,
+    fsLivingRoomDepthM: 4.0,
+    fsDaylightBlocked: 0,
+    fsRoadRush: 0,
     ...o,
   }
 }

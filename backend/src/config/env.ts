@@ -22,6 +22,12 @@ const envSchema = z.object({
   CUSTOM_OPENAI_SUPPORTS_REASONING_EFFORT: z.stringbool().default(false),
   CUSTOM_OPENAI_SUPPORTS_USAGE_IN_STREAMING: z.stringbool().default(false),
   CUSTOM_OPENAI_SUPPORTS_STRICT_MODE: z.stringbool().default(false),
+  // 都市計畫圖資 (臺北市 UPIS / 新北市城鄉資訊平台 / 基隆市 UPGIS). 基隆的 ArcGIS 延遲最不穩定，
+  // 同一個查詢實測過 0.2 秒也實測過 21 秒，所以單獨給一個較長的 timeout 當緩衝；
+  // 分區資料以年為單位變動，快取設得長一點沒問題。
+  URBAN_PLAN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  URBAN_PLAN_SLOW_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+  URBAN_PLAN_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(86_400_000),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   REQUEST_BODY_LIMIT: z.coerce.number().int().positive().default(1_048_576),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),

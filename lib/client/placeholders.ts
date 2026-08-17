@@ -3,6 +3,7 @@ export const PLACEHOLDERS = [
   '我在臺北上班，月租兩萬以內，走路就有捷運，生活機能要好',
   '中南部，月租最高 18000，希望少雨而且生活方便',
   '房租可以到 25000，但交通比生活機能重要',
+  '預算 2500 萬以內，很在意風水，不要穿堂煞和樑壓床，要有電梯',
 ] as const
 
 export const PLACEHOLDER_ROTATE_MS = 4500

@@ -1,7 +1,9 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { preferencePatchSchema, type PreferencePatch } from "../../domain/preferences/schema.js";
+import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
 import type { ProviderRegistry } from "../../providers/types.js";
+import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
 import type { PreferenceService } from "../../services/preference.service.js";
 import type { RecommendationService } from "../../services/recommendation.service.js";
 import type { SessionService } from "../../services/session.service.js";
@@ -15,6 +17,7 @@ interface ToolDependencies {
   preferences: PreferenceService;
   recommendations: RecommendationService;
   providers: ProviderRegistry;
+  urbanPlan: UrbanPlanProvider;
   publish: (event: AgentEvent) => void;
 }
 
@@ -73,6 +76,33 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       },
     },
     {
+      name: "get_urban_plan",
+      label: "查詢都市計畫使用分區",
+      description: [
+        "以 WGS84 座標查真實的都市計畫圖資：使用分區、建蔽率、容積率、所屬都市計畫、細部計畫、都市計畫案、以及都市更新／山坡地／禁限建／都市設計審議等管制範圍。",
+        "資料直接來自 臺北市 UPIS、新北市城鄉資訊查詢平台、基隆市 UPGIS 三個官方系統，只涵蓋這三個縣市；其他地區會回錯誤。",
+        "回傳的 match 一定要看：parcel 表示座標就落在該分區圖形內；nearby 表示座標落在道路或河川等沒有分區圖形的地方，是用周邊半徑取的參考值，不能講成該地號的法定分區；none 表示查無資料。",
+        "buildingCoveragePct／floorAreaRatioPct 為 null 就是來源沒有提供（基隆市圖資沒有這兩個欄位），不可自行推估。warnings 有內容時要一併說明。",
+      ].join(""),
+      parameters: Type.Object({
+        latitude: Type.Number({ description: "WGS84 latitude in decimal degrees, e.g. 25.0478" }),
+        longitude: Type.Number({ description: "WGS84 longitude in decimal degrees, e.g. 121.5637" }),
+        city: Type.Optional(Type.String({ description: "臺北市 | 新北市 | 基隆市. Omit to resolve from the coordinate." })),
+      }),
+      execute: async (_id, params, signal) => {
+        const { latitude, longitude, city } = params as { latitude: number; longitude: number; city?: string };
+        const parsedCity = urbanPlanCitySchema.safeParse(city);
+        if (city !== undefined && !parsedCity.success) {
+          throw new Error(`city 只接受 臺北市、新北市、基隆市；收到「${city}」。省略 city 會依座標自動判斷。`);
+        }
+        return textResult(await deps.urbanPlan.lookup({
+          latitude,
+          longitude,
+          ...(parsedCity.success ? { city: parsedCity.data } : {}),
+        }, signal));
+      },
+    },
+    {
       name: "get_candidate_detail", label: "取得候選詳情", description: "取得單一已排名行政區的完整 raw data、來源、breakdown 與 data quality。",
       parameters: locationParams,
       execute: async (_id, params) => {
@@ -94,6 +124,9 @@ const PATCH_SHAPE = [
   "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
   "softPreferences.amenities: weight, convenienceStore, supermarket, hospital, clinic, restaurant, school, park.",
   "softPreferences.geography: weight, urbanDensity, elevation, coastalPreference (-1..1).",
+  "listingPreferences: fengshuiWeight (0..1), avoidFengshui[] — 物件層級，不影響行政區排名，前端拿去排物件。",
+  "avoidFengshui only accepts: throughDraft 穿堂煞, stoveInSight 開門見灶, toiletFacingDoor 開門見廁,",
+  "beamPressure 樑壓床, narrowHall 明堂狹窄, roadRush 路衝壁刀. It is a hard exclusion — see the fengshui rule in the system prompt.",
   "Every weight is 0..1. Omit whatever the user did not mention.",
 ].join(" ");
 

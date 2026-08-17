@@ -10,12 +10,13 @@ Implemented:
 - district candidates with coordinates, raw provider data, source metadata, data quality, score breakdown, confidence, highlights, and trade-offs
 - deterministic hard filtering, feature normalization, missing-data redistribution, 0–100 scoring, and stable tie-breaking
 - `AgentRuntime` abstraction with Pi and token-free deterministic implementations
-- nine domain tools: location search, climate, housing, amenities, transport, geography, preference updates, ranking, and candidate detail
+- ten domain tools: location search, climate, housing, amenities, transport, geography, preference updates, ranking, candidate detail, and coordinate-level urban-plan lookup
+- live 都市計畫使用分區 lookup for 臺北市 / 新北市 / 基隆市 straight from the three cities' official GIS (see [`docs/architecture.md`](docs/architecture.md#都市計畫圖資-urban-plan))
 - PostgreSQL session/message/ranking persistence and in-memory test repository
 - JSON API, typed SSE events, runtime OpenAPI, rate limiting, CORS, request limits, redacted logs, and partial provider failure handling
 - unit/integration/SSE tests and a two-turn plus manual-adjustment demo
 
-Current data is an explicitly marked development fixture inspired by public Taiwan datasets. It is not live housing inventory or authoritative statistics.
+District-level data (climate, rent, amenities, transport, geography) is an explicitly marked development fixture inspired by public Taiwan datasets — not live housing inventory or authoritative statistics. The urban-plan lookup is the exception: it queries the cities' own systems at request time and is flagged `isFixture: false`.
 
 ## Requirements
 
@@ -96,6 +97,23 @@ CUSTOM_OPENAI_SUPPORTS_STRICT_MODE=true
 | `GET` | `/sessions/:id/candidates` | Frontend/map-ready ranking |
 | `GET` | `/sessions/:id/candidates/:candidateId` | Complete candidate evidence |
 | `POST` | `/sessions/:id/rank` | Refresh data and rank, or rerank existing data |
+| `POST` | `/urban-plan` | 都市計畫使用分區 for one WGS84 coordinate (臺北市／新北市／基隆市) |
+
+### 都市計畫使用分區
+
+```bash
+curl -X POST http://localhost:3001/urban-plan \
+  -H "content-type: application/json" \
+  -d '{"latitude":25.0143,"longitude":121.4628}'
+```
+
+```json
+{ "city": "新北市", "match": "parcel", "searchRadiusM": 0,
+  "zones": [{ "zoneName": "車站用地", "zoneShortName": "車三", "buildingCoveragePct": 60, "floorAreaRatioPct": 500 }],
+  "urbanPlanName": "板橋都市計畫", "overlays": [{ "name": "免建築線範圍" }], "quality": "observed" }
+```
+
+Read `match` before quoting anything: `parcel` means the coordinate is inside that zoning polygon, `nearby` means it fell in a road/river gap and the surrounding block was sampled instead (`warnings` says so), `none` means no data. `null` on 建蔽率/容積率 means the source did not supply it — 基隆's dataset has no such column. Session-independent and cached, so it also suits per-listing enrichment on the frontend.
 
 ### Create and manually adjust
 
@@ -168,6 +186,7 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm demo
+pnpm urban-plan:smoke   # hits the three cities' live GIS; not part of pnpm test
 ```
 
 Tests do not call a paid model. They cover preference merge/validation, hard filtering, deterministic scoring, missing data, state consistency across two turns, manual reranking, SSE events, and OpenAPI publication.
@@ -180,7 +199,8 @@ Provider failures become `dataQuality: "missing"`; ranking redistributes unavail
 
 ## Limitations
 
-- fixture data only; values are not suitable for real housing decisions
+- district-level data is fixture only; values are not suitable for real housing decisions. 都市計畫使用分區 is real, but a `nearby` match is a block-level sample and never a statement about a specific 地號 — the authoritative answer is the city's own system
+- 都市計畫使用分區 covers 臺北市／新北市／基隆市 only; other cities return 400
 - no individual listings, purchases, route planning, accounts, billing, vector DB, RAG, or multi-agent workflow
 - `maxCommuteMinutes` is modeled but cannot be enforced until a route-time provider exists
 - fixture normalization is relative to the current candidate set, so scores compare candidates within a run rather than representing an absolute national index

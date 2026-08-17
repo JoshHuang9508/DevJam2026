@@ -74,6 +74,16 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                   className="block h-3.5 w-3.5 rounded-full border border-neutral-300 bg-white shadow-sm transition group-hover:border-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-1"
                 />
               </Slider.Root>
+              {/*
+                只有風水需要這行：它是唯一預設為 0 的維度，滑桿看起來「在最左邊」
+                很容易被誤讀成壞掉或沒生效。權重歸零後就補回一般的間距，不佔版面。
+                提示放在 Slider.Root 之外，不碰 Thumb 的 aria-label（e2e 依賴它）。
+              */}
+              {key === 'fengshui' && value === 0 && (
+                <p className="mt-1 text-[10px] leading-none text-neutral-400">
+                  信仰性偏好，預設不參與排序；拉高才會影響順序
+                </p>
+              )}
             </li>
           )
         })}

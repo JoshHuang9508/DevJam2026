@@ -60,6 +60,9 @@ const DISTRICTS: DistrictSeed[] = [
   { city: '新北市', name: '汐止區', lat: 25.0653, lng: 121.6420, saleUnit: 38, rentUnit: 750, summerTemp: 29.5, winterTemp: 16.2, rainDays: 186, humidity: 81, aqi: 38, urbanity: 0.60, hasMetro: false },
 ]
 
+/** 第二趟（風水）只拿得到 Row，用這張表把 urbanity 查回來，避免把 DistrictSeed 塞進 Row */
+const DISTRICT_URBANITY = new Map(DISTRICTS.map((d) => [`${d.city}-${d.name}`, d.urbanity]))
+
 const BUILDING_TYPES = ['電梯大樓', '公寓', '華廈', '透天厝', '套房'] as const
 
 const LISTINGS_PER_DISTRICT_PER_MODE = 9
@@ -161,6 +164,75 @@ function build(): Row[] {
   return rows
 }
 
+/**
+ * 由 id 算出確定性種子：逐字元 char code 以 31 進位累加，再乘 Knuth 質數打散。
+ *
+ * 為什麼要再乘一次質數：makeRng 是線性同餘產生器，相鄰種子的第一個輸出只差
+ * 1664525 / 2^32 ≈ 0.0004，若直接拿累加值當種子，`seed-sale-臺北市中正區-0` 與 `-1`
+ * 的風水擲骰幾乎完全相同，整批資料會呈現詭異的連號規律。乘質數後種子彼此拉開。
+ */
+function seedFromId(id: string): number {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return Math.imul(h, 2654435761) >>> 0
+}
+
+const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v)
+
+/**
+ * 風水證據：確定性模擬值，**不是**真的跑過格局圖辨識或街景視覺模型。
+ * 真實 pipeline 會由格局圖／室內照片／Google 街景圖的視覺模型填這八欄，這裡只是讓 demo 有東西看，
+ * README 與 UI 必須照實標示為模擬。
+ *
+ * 關鍵：每筆物件另開一條由 id 雜湊決定的 rng，不共用 build() 裡的 makeRng(20260817)。
+ * 既有那條 LCG 的每個輸出都綁在「第幾次呼叫」上 —— 價格、坪數、屋齡、POI、距離全由呼叫順序決定，
+ * 只要在迴圈中間多呼叫一次 rng()，後面所有既有欄位就會整批位移，示範資料等於重洗一次。
+ * 因此風水一律走獨立序列，且刻意排在 build() 之後的第二趟，連呼叫時機都不碰既有流程。
+ */
+function fillFengshui(rows: Row[]): void {
+  for (const r of rows) {
+    const rng = makeRng(seedFromId(r.id))
+    const chance = (p: number) => (rng() < p ? 1 : 0)
+
+    const isStudio = r.buildingType === '套房'
+    const isWalkUp = r.buildingType === '公寓'
+    const u = DISTRICT_URBANITY.get(`${r.city}-${r.district}`) ?? 0.8
+    const mainRoad = r.f.dist_to_main_road ?? 400
+
+    // 沒有格局圖／室內照片可辨識的物件（約 5%）：七個室內欄位一律留 null。
+    // 這不是偷懶，是要讓「未檢測 ≠ 無虞」這條路徑在 demo 上真的出現得到。
+    const noFloorPlan = rng() < 0.05
+    // 街景是另一種來源，會各自缺（巷弄內、街景車未經過），所以獨立擲一次
+    const noStreetView = rng() < 0.04
+
+    // 小坪數與老屋的玄關腹地不足，大門對窗／對後門較常見
+    const alignedP = 0.35 + (isStudio ? 0.2 : 0) + (r.age > 30 ? 0.1 : 0)
+    // 新屋與大坪數才有空間做玄關屏風／半高鞋櫃
+    const screenP = 0.2 + (r.age < 15 ? 0.25 : 0) + (r.area > 30 ? 0.2 : 0)
+    // 套房多為開放式廚房，一進門就看到爐具
+    const stoveP = isStudio ? 0.7 : 0.15
+    const toiletP = isStudio ? 0.45 : r.area < 20 ? 0.28 : 0.12
+    // 無電梯公寓樓板薄、樑柱外露，屋齡越大越常見
+    const beamP = 0.12 + (isWalkUp ? 0.25 : 0) + (r.age > 30 ? 0.15 : 0)
+    // 低樓層又在高度都市化的街廓，主採光面容易被鄰棟擋掉
+    const daylightP = r.floor <= 3 ? 0.18 + u * 0.45 : 0.05 + u * 0.1
+    const roadRushP = mainRoad < 100 ? 0.28 : 0.08
+
+    // 客廳縱深由坪數推導：套房沒有獨立客廳，再打折反映實際可用縱深
+    const depthRaw = clamp(2.2 + r.area / 12 + (rng() - 0.5) * 0.6, 2.0, 6.5)
+    const depth = clamp(isStudio ? depthRaw * 0.72 : depthRaw, 2.0, 6.5)
+
+    r.f.fs_entry_window_aligned = noFloorPlan ? null : chance(alignedP)
+    r.f.fs_entry_screen = noFloorPlan ? null : chance(screenP)
+    r.f.fs_stove_visible_from_door = noFloorPlan ? null : chance(stoveP)
+    r.f.fs_toilet_facing_door = noFloorPlan ? null : chance(toiletP)
+    r.f.fs_beam_over_bed = noFloorPlan ? null : chance(beamP)
+    r.f.fs_living_room_depth_m = noFloorPlan ? null : Number(depth.toFixed(2))
+    r.f.fs_daylight_blocked = noFloorPlan ? null : chance(daylightP)
+    r.f.fs_road_rush = noStreetView ? null : chance(roadRushP)
+  }
+}
+
 /** 同 mode + city + district + buildingType 分組計算單價百分位 */
 function fillPercentiles(rows: Row[]): void {
   const groups = new Map<string, Row[]>()
@@ -183,6 +255,7 @@ function main(): void {
   const db = new Database(process.env.DATABASE_PATH ?? './data/app.db')
   const rows = build()
   fillPercentiles(rows)
+  fillFengshui(rows)
 
   db.exec('DELETE FROM listing_features; DELETE FROM listings; DELETE FROM districts;')
 

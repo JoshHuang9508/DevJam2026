@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
+import { createUrbanPlanProvider } from "./providers/urban-plan/index.js";
 import { AgentService } from "./services/agent.service.js";
 import { PreferenceService } from "./services/preference.service.js";
 import { RecommendationService } from "./services/recommendation.service.js";
@@ -14,6 +15,13 @@ export async function createApplication(config: AppConfig) {
   const repository = config.REPOSITORY_MODE === "postgres" ? new PostgresSessionRepository(config.DATABASE_URL) : new InMemorySessionRepository();
   const sessions = new SessionService(repository);
   const providers = createFixtureProviders();
+  // Point-level, not district-level: kept outside ProviderRegistry because it answers a coordinate,
+  // not a candidate, and takes no part in candidate hydration or ranking.
+  const urbanPlan = createUrbanPlanProvider({
+    timeoutMs: config.URBAN_PLAN_TIMEOUT_MS,
+    slowTimeoutMs: config.URBAN_PLAN_SLOW_TIMEOUT_MS,
+    cacheTtlMs: config.URBAN_PLAN_CACHE_TTL_MS,
+  });
   const preferences = new PreferenceService(sessions);
   const recommendations = new RecommendationService(sessions, providers);
   let runtime: AgentRuntime;
@@ -28,6 +36,7 @@ export async function createApplication(config: AppConfig) {
       preferences,
       recommendations,
       providers,
+      urbanPlan,
       ...(selectedApiKey ? { apiKey: selectedApiKey } : {}),
       ...(config.PI_PROVIDER === "custom-openai" ? {
         custom: {
@@ -48,5 +57,5 @@ export async function createApplication(config: AppConfig) {
     runtime = new DeterministicAgentRuntime(preferences, recommendations);
   }
   const agent = new AgentService(sessions, runtime);
-  return buildApp({ config, sessions, preferences, recommendations, agent, runtimeName: runtime.name });
+  return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, runtimeName: runtime.name });
 }

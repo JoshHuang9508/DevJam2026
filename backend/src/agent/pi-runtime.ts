@@ -1,6 +1,7 @@
 import { Agent, type AgentEvent as PiEvent } from "@earendil-works/pi-agent-core";
 import { contentText } from "@earendil-works/pi-ai";
 import type { ProviderRegistry } from "../providers/types.js";
+import type { UrbanPlanProvider } from "../providers/urban-plan/types.js";
 import type { PreferenceService } from "../services/preference.service.js";
 import type { RecommendationService } from "../services/recommendation.service.js";
 import type { SessionService } from "../services/session.service.js";
@@ -16,6 +17,7 @@ interface PiRuntimeOptions extends PiModelProviderConfig {
   preferences: PreferenceService;
   recommendations: RecommendationService;
   providers: ProviderRegistry;
+  urbanPlan: UrbanPlanProvider;
 }
 
 export class PiAgentRuntime implements AgentRuntime {
@@ -32,6 +34,7 @@ export class PiAgentRuntime implements AgentRuntime {
       preferences: this.options.preferences,
       recommendations: this.options.recommendations,
       providers: this.options.providers,
+      urbanPlan: this.options.urbanPlan,
       publish: (event) => queue.push(event),
     });
     const agent = new Agent({
