@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
 import { PLACEHOLDERS, PLACEHOLDER_ROTATE_MS } from '@/lib/client/placeholders'
 import type { Mode } from '@/lib/types/profile'
@@ -18,6 +18,7 @@ interface Props {
 export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, statusOk }: Props) {
   const [value, setValue] = useState('')
   const [index, setIndex] = useState(0)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const timer = setInterval(() => setIndex((i) => (i + 1) % PLACEHOLDERS.length), PLACEHOLDER_ROTATE_MS)
@@ -49,6 +50,7 @@ export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, 
 
       <form onSubmit={submit} className="mt-4 flex gap-2">
         <input
+          ref={inputRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           // 輸入法確認選字的 Enter 會觸發 form 的隱含送出，把組字中的半句話送出去；
@@ -76,7 +78,13 @@ export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, 
           <li key={p}>
             <button
               type="button"
-              onClick={() => onSubmit(p)}
+              onClick={() => {
+                setValue(p)
+                const input = inputRef.current
+                if (!input) return
+                input.focus()
+                requestAnimationFrame(() => input.setSelectionRange(p.length, p.length))
+              }}
               disabled={disabled}
               className="rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-600 transition hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40"
             >
