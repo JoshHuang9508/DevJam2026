@@ -3,6 +3,12 @@ import { z } from "zod";
 const weight = z.number().min(0).max(1);
 const preferenceLevel = z.enum(["low", "medium", "high"]);
 const hardConstraintsSchemaBase = z.object({
+  /**
+   * 買賣 or 租賃。放在後端 state 而不是只留在前端的切換鈕，agent 才能自己決定 ——
+   * 「我想租」「頭期款只有兩百萬」這種話裡的意圖，使用者不會再去點那顆按鈕。
+   * 前端每輪仍會把切換鈕的值送上來，agent 之後改的會蓋過它（使用者說的話優先）。
+   */
+  mode: z.enum(["sale", "rent"]).optional(),
   regions: z.array(z.enum(["北部", "中部", "南部", "東部", "離島"])).optional(),
   cities: z.array(z.string().min(1)).optional(),
   districts: z.array(z.string().min(1)).optional(),

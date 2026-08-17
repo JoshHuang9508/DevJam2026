@@ -118,6 +118,8 @@ export interface HardConstraints {
   excludedDistricts?: string[]
   minMonthlyRent?: number
   maxMonthlyRent?: number
+  /** 買賣 or 租賃。agent 可以自己決定，會蓋過前端切換鈕。 */
+  mode?: 'sale' | 'rent'
   /** 買賣總價，單位**萬元**（與 listing.price 同單位）。租賃走 *MonthlyRent。 */
   minTotalPriceWan?: number
   maxTotalPriceWan?: number

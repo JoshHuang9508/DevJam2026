@@ -109,7 +109,10 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
         "搜尋範圍完全由 preference state 的 hardConstraints 決定：使用者指定過地區的話，回傳的物件一定在那個地區內，" +
         "而且找不到時也不會自動擴大範圍（回傳的 relaxations 會說明）。要改範圍就先呼叫 update_preferences。",
       parameters: Type.Object({
-        mode: Type.Optional(Type.String({ description: "sale（買賣）或 rent（租賃）。省略時沿用預設。" })),
+        mode: Type.Optional(Type.String({
+          description: "sale（買賣）或 rent（租賃）。省略時沿用 preference state 裡的 mode。" +
+            "要長期改變買/租意圖請用 update_preferences 寫 hardConstraints.mode，這個參數只影響單次查詢。",
+        })),
         limit: Type.Optional(Type.Number({ description: "回傳幾筆，1..20，預設 8。" })),
         nearPlace: Type.Optional(Type.String({
           description:
@@ -133,7 +136,8 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
           const result = await deps.listings.rank({
             sessionId: deps.sessionId,
             preferences: session.preferences,
-            ...(mode ? { mode } : {}),
+            // 沒特別指定就用 state 裡的，state 也沒有才交給前端決定
+            ...(mode ? { mode } : session.preferences.hardConstraints.mode ? { mode: session.preferences.hardConstraints.mode } : {}),
             ...(limit ? { limit } : {}),
             ...(nearPlace ? { near: { place: nearPlace, ...(nearRadiusKm ? { radiusKm: nearRadiusKm } : {}) } } : {}),
             ...(signal ? { signal } : {}),
@@ -165,7 +169,7 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
 
 /** Canonical PreferencePatch paths. hardConstraints is flat — it has no per-dimension nesting. */
 const PATCH_SHAPE = [
-  "hardConstraints: regions[] (北部|中部|南部|東部|離島), cities[], districts[], excludedCities[], excludedDistricts[],",
+  "hardConstraints: mode (sale 買賣 | rent 租賃), regions[] (北部|中部|南部|東部|離島), cities[], districts[], excludedCities[], excludedDistricts[],",
   "minMonthlyRent / maxMonthlyRent 是**租賃**的月租（元）；minTotalPriceWan / maxTotalPriceWan 是**買賣**的總價（萬元）。",
   "使用者說「預算兩千萬」要寫 maxTotalPriceWan: 2000，說「租金兩萬以內」要寫 maxMonthlyRent: 20000。兩者不可混用。",
   "minMonthlyRent, maxMonthlyRent, maxCommuteMinutes — all flat, never nested under housing/transportation.",

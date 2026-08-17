@@ -74,6 +74,10 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
   if (!profile.hard.districts?.length) hard.districts = []
   // The backend only models monthly rent, so budgets are meaningless in sale mode
   // (萬元總價 vs 元月租 differ by orders of magnitude).
+  // 前端切換鈕的值每輪都送。agent 之後若從對話判斷出不同意圖會蓋過它 ——
+  // 使用者說的話優先於他忘了點的按鈕。
+  hard.mode = profile.mode
+
   // 預算的欄位與單位隨模式而不同：租賃是元月租，買賣是萬元總價。
   // 兩者量級差三個數量級，混用會讓條件不是完全失效就是把結果篩成 0 筆。
   const max = profile.hard.budgetMax
@@ -148,13 +152,20 @@ export function toSearchProfile(
     if (listing.avoidFengshui.length > 0) hard.avoidFengshui = [...listing.avoidFengshui]
     else delete hard.avoidFengshui
   }
-  if (base.mode === 'sale') {
+  // mode 必須在預算對應**之前**決定：兩種模式的預算來自不同欄位、單位差三個數量級，
+  // 用錯就是「兩千萬」被當成月租，結果直接 0 筆。
+  const mode = hardIn.mode ?? base.mode
+  if (mode === 'sale') {
     if (typeof hardIn.maxTotalPriceWan === 'number') hard.budgetMax = hardIn.maxTotalPriceWan
     if (typeof hardIn.minTotalPriceWan === 'number') hard.budgetMin = hardIn.minTotalPriceWan
-  }
-  if (base.mode === 'rent') {
+  } else {
     if (typeof hardIn.maxMonthlyRent === 'number') hard.budgetMax = hardIn.maxMonthlyRent
     if (typeof hardIn.minMonthlyRent === 'number') hard.budgetMin = hardIn.minMonthlyRent
+  }
+  // 切換模式時舊模式的預算必須清掉，否則「兩千萬總價」會殘留成租屋的月租條件
+  if (mode !== base.mode && hard.budgetMax === base.hard.budgetMax) {
+    delete hard.budgetMax
+    delete hard.budgetMin
   }
 
   const softOut: SearchProfile['soft'] = { ...base.soft }
@@ -162,7 +173,7 @@ export function toSearchProfile(
   const preferredMax = soft.climate.temperature.preferredMax
   softOut.prefersCool = typeof preferredMax === 'number' && preferredMax <= 26
 
-  return { mode: base.mode, weights, hard, soft: softOut, notes: base.notes }
+  return { mode, weights, hard, soft: softOut, notes: base.notes }
 }
 
 /** Weight axes the agent moved this turn, for the panel's `交通 20 → 40` badge. */
