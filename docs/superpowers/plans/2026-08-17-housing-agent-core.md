@@ -4521,6 +4521,9 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
   const [streaming, setStreaming] = useState(false)
   const [highlighted, setHighlighted] = useState<WeightHighlights>({})
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 記下對話路徑套用的那個 profile 物件。SSE 的 results 事件已經連同排序結果一起回來了，
+  // 主畫面靠比對這個參考來跳過一次多餘的 /api/rank。
+  const appliedByChat = useRef<SearchProfile | null>(null)
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -4555,6 +4558,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
         for (const e of events) {
           if (e.event === 'profile') {
             const next = e.data as SearchProfile
+            appliedByChat.current = next
             search.setProfile(next)
             const diff = diffWeights(before, next)
             if (Object.keys(diff).length > 0) {
@@ -4586,7 +4590,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
     }
   }, [messages, search, streaming])
 
-  return { messages, streaming, send, highlighted }
+  return { messages, streaming, send, highlighted, appliedByChat }
 }
 ```
 
@@ -4776,11 +4780,19 @@ export default function Home() {
   const chat = useChat(search)
   const [started, setStarted] = useState(false)
 
-  // 開始對話後，profile 的任何變動（含 slider 拖動）都在 debounce 後重新排序。
-  // 此路徑不呼叫 Gemini — 這是「手動調權重」的第二條路徑。
+  // 手動調權重的第二條路徑：profile 變動後 debounce 重排，不呼叫 Gemini。
+  //
+  // 注意不能把 chat.streaming 放進依賴陣列：串流結束時它 true → false 的變化本身
+  // 就會重排計時器，200ms 後守衛通過，於是每次對話都多打一次 /api/rank ——
+  // 但那份 profile 的排序結果早就由 SSE 的 results 事件送回來了。
+  // 改為比對物件參考：對話路徑套用的 profile 直接跳過。
   useDebouncedEffect(
-    () => { if (started && !chat.streaming) void search.rank(search.profile) },
-    [search.profile, started, chat.streaming],
+    () => {
+      if (!started) return
+      if (search.profile === chat.appliedByChat.current) return
+      void search.rank(search.profile)
+    },
+    [search.profile, started],
     RANK_DEBOUNCE_MS,
   )
 
