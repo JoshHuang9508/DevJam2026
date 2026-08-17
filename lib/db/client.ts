@@ -12,8 +12,9 @@ let cached: ReturnType<typeof drizzle> | null = null
 
 export function getDb() {
   if (!cached) {
+    // 唯讀連線不得設定 journal_mode —— 那是寫入操作，會拋
+    // SqliteError: attempt to write a readonly database。讀取端沿用寫入端建立的模式即可。
     const sqlite = new Database(DB_PATH, { readonly: true, fileMustExist: true })
-    sqlite.pragma('journal_mode = WAL')
     cached = drizzle(sqlite, { schema })
   }
   return cached
