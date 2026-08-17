@@ -298,7 +298,7 @@ export function AgentApp() {
           </div>
 
           <form
-            className="flex items-end gap-2 border-neutral-200 p-3"
+            className="flex items-stretch gap-2 border-neutral-200 p-3"
             onSubmit={(event) => { event.preventDefault(); void send(input) }}
           >
             <textarea
@@ -317,7 +317,7 @@ export function AgentApp() {
             <button
               type="submit"
               disabled={chatting || !input.trim()}
-              className="rounded-lg bg-neutral-900 px-3 py-2 text-[13px] font-medium text-white transition hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-neutral-900"
+              className="shrink-0 rounded-lg bg-neutral-900 px-3 text-[13px] font-medium text-white transition hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-neutral-900"
             >
               {chatting ? '…' : '送出'}
             </button>
