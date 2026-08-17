@@ -984,7 +984,13 @@ export function makeFeatures(o: Partial<ListingFeatures> = {}): ListingFeatures 
   }
 }
 
-export function makeListing(o: Partial<ListingWithFeatures> = {}): ListingWithFeatures {
+// features 必須是「深層 partial」——測試都只覆寫其中幾個欄位。
+// 直接用 Partial<ListingWithFeatures> 在 strict 下會要求 features 是完整物件。
+export type ListingOverride = Partial<Omit<ListingWithFeatures, 'features'>> & {
+  features?: Partial<ListingFeatures>
+}
+
+export function makeListing(o: ListingOverride = {}): ListingWithFeatures {
   const { features, ...rest } = o
   return {
     id: 'L1', source: 'test', sourceId: 'L1', mode: 'sale',
