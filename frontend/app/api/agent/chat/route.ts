@@ -126,9 +126,6 @@ export async function POST(request: Request): Promise<Response> {
           }
         }
 
-        if (!emittedResults) {
-          send('text', { delta: '\n\n這一輪沒有更新排序結果，你可以直接調整左邊的權重重新排序。' })
-        }
         send('done', {})
       } catch (error) {
         console.error('[api/selector/chat] 失敗', error)
