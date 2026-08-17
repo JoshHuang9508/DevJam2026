@@ -118,6 +118,9 @@ export interface HardConstraints {
   excludedDistricts?: string[]
   minMonthlyRent?: number
   maxMonthlyRent?: number
+  /** 買賣總價，單位**萬元**（與 listing.price 同單位）。租賃走 *MonthlyRent。 */
+  minTotalPriceWan?: number
+  maxTotalPriceWan?: number
   maxCommuteMinutes?: number
 }
 

@@ -166,6 +166,8 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
 /** Canonical PreferencePatch paths. hardConstraints is flat — it has no per-dimension nesting. */
 const PATCH_SHAPE = [
   "hardConstraints: regions[] (北部|中部|南部|東部|離島), cities[], districts[], excludedCities[], excludedDistricts[],",
+  "minMonthlyRent / maxMonthlyRent 是**租賃**的月租（元）；minTotalPriceWan / maxTotalPriceWan 是**買賣**的總價（萬元）。",
+  "使用者說「預算兩千萬」要寫 maxTotalPriceWan: 2000，說「租金兩萬以內」要寫 maxMonthlyRent: 20000。兩者不可混用。",
   "minMonthlyRent, maxMonthlyRent, maxCommuteMinutes — all flat, never nested under housing/transportation.",
   "cities 用完整名稱（臺北市、新北市），districts 用完整名稱（大安區）。regions 與 cities 同時給是取交集。",
   "地區欄位是使用者說出口才填的硬條件，填了就一定生效、找不到也不會自動擴大；不要為了讓結果變多而自己塞。",

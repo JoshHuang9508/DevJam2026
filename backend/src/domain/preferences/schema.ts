@@ -10,11 +10,19 @@ const hardConstraintsSchemaBase = z.object({
   excludedDistricts: z.array(z.string().min(1)).optional(),
   minMonthlyRent: z.number().int().nonnegative().optional(),
   maxMonthlyRent: z.number().int().positive().optional(),
+  // 買賣總價，單位**萬元**（與前端的 listing.price 同單位）。
+  // 沒有這兩個欄位的話，買賣模式下的「預算兩千萬」完全無處可存 ——
+  // agent 聽懂了也記不下來，結果就是預算被靜默忽略。
+  minTotalPriceWan: z.number().int().nonnegative().optional(),
+  maxTotalPriceWan: z.number().int().positive().optional(),
   maxCommuteMinutes: z.number().int().positive().max(240).optional(),
 });
 const hardConstraintsSchema = hardConstraintsSchemaBase.superRefine((value, ctx) => {
   if (value.minMonthlyRent !== undefined && value.maxMonthlyRent !== undefined && value.minMonthlyRent > value.maxMonthlyRent) {
     ctx.addIssue({ code: "custom", message: "minMonthlyRent cannot exceed maxMonthlyRent" });
+  }
+  if (value.minTotalPriceWan !== undefined && value.maxTotalPriceWan !== undefined && value.minTotalPriceWan > value.maxTotalPriceWan) {
+    ctx.addIssue({ code: "custom", message: "minTotalPriceWan cannot exceed maxTotalPriceWan" });
   }
 });
 

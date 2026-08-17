@@ -74,11 +74,16 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
   if (!profile.hard.districts?.length) hard.districts = []
   // The backend only models monthly rent, so budgets are meaningless in sale mode
   // (萬元總價 vs 元月租 differ by orders of magnitude).
+  // 預算的欄位與單位隨模式而不同：租賃是元月租，買賣是萬元總價。
+  // 兩者量級差三個數量級，混用會讓條件不是完全失效就是把結果篩成 0 筆。
+  const max = profile.hard.budgetMax
+  const min = profile.hard.budgetMin
   if (profile.mode === 'rent') {
-    const max = profile.hard.budgetMax
-    const min = profile.hard.budgetMin
     if (typeof max === 'number' && max > 0) hard.maxMonthlyRent = Math.round(max)
     if (typeof min === 'number' && min > 0) hard.minMonthlyRent = Math.round(min)
+  } else {
+    if (typeof max === 'number' && max > 0) hard.maxTotalPriceWan = Math.round(max)
+    if (typeof min === 'number' && min > 0) hard.minTotalPriceWan = Math.round(min)
   }
   if (Object.keys(hard).length > 0) patch.hardConstraints = hard
 
@@ -142,6 +147,10 @@ export function toSearchProfile(
   if (listing) {
     if (listing.avoidFengshui.length > 0) hard.avoidFengshui = [...listing.avoidFengshui]
     else delete hard.avoidFengshui
+  }
+  if (base.mode === 'sale') {
+    if (typeof hardIn.maxTotalPriceWan === 'number') hard.budgetMax = hardIn.maxTotalPriceWan
+    if (typeof hardIn.minTotalPriceWan === 'number') hard.budgetMin = hardIn.minTotalPriceWan
   }
   if (base.mode === 'rent') {
     if (typeof hardIn.maxMonthlyRent === 'number') hard.budgetMax = hardIn.maxMonthlyRent
