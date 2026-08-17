@@ -76,10 +76,27 @@ cat > package.json <<'EOF'
   }
 }
 EOF
-pnpm add next react react-dom drizzle-orm better-sqlite3 zod @google/genai maplibre-gl @radix-ui/react-slider
+pnpm add next react react-dom drizzle-orm better-sqlite3 zod @google/genai maplibre-gl \
+  @radix-ui/react-slider server-only
 pnpm add -D typescript @types/node @types/react @types/react-dom @types/better-sqlite3 \
   tailwindcss @tailwindcss/postcss postcss drizzle-kit tsx vitest @playwright/test
 ```
+
+pnpm 10 起預設封鎖依賴的安裝腳本，`better-sqlite3` 的原生模組會因此建不起來，
+後續每個 task 都會在 `loadPool` 掛掉。用 repo 內的 `pnpm-workspace.yaml` 開白名單 ——
+**不可**改用全域設定或 `dangerouslyAllowAllBuilds`，那會對整台機器關掉供應鏈防護。
+
+`pnpm-workspace.yaml`:
+```yaml
+allowBuilds:
+  '@google/genai': true
+  better-sqlite3: true
+  esbuild: true
+  protobufjs: true
+```
+
+`allowBuilds` 是 pnpm 11 的設定名（map 形式，值為 boolean）。
+`onlyBuiltDependencies`、`neverBuiltDependencies` 等舊鍵在 v11 已移除，寫了不會生效也不會報錯。
 
 - [ ] **Step 2: 建立設定檔**
 
