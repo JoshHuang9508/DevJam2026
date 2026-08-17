@@ -44,7 +44,7 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
               <div className="mb-1.5 flex items-baseline justify-between gap-2 text-xs leading-none">
                 <span className="text-neutral-600">{WEIGHT_LABELS[key]}</span>
                 {change ? (
-                  <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-blue-700 ring-1 ring-inset ring-blue-200">
+                  <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
                     {change.from} → {change.to}
                   </span>
                 ) : (

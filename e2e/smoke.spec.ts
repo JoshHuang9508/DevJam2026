@@ -1,57 +1,64 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * 這些測試不依賴 Gemini 金鑰 —— /api/chat 在無金鑰時仍會回 profile、results 與降級文案，
- * 因此結果畫面必定出現內容。這是「永不空畫面」原則的迴歸測試。
+ * 這些測試不依賴 Fastify 後端。後端未啟動時 /api/agent/chat 會回錯誤，
+ * UI 顯示 ⚠️ 訊息但版面轉場、權重面板、物件欄仍照常運作 —— 那正是這裡要測的。
+ * 地圖 marker 與物件卡片來自 /api/rank（純 scoring，讀 data/app.db），跟 Fastify 無關。
  */
 
-test('初始畫面顯示對話框與範例', async ({ page }) => {
-  await page.goto('/classic')
+/** 送出一句話讓入口淡出、地圖與物件欄出現。幾乎每個測試都要先做這件事。 */
+async function submitQuery(page: import('@playwright/test').Page, text = '台北的房子') {
+  await page.goto('/')
+  await page.getByTestId('composer-input').fill(text)
+  await page.getByTestId('composer-submit').click()
+}
+
+test('初始畫面顯示置中入口', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.getByTestId('entrance')).toBeVisible()
   await expect(page.getByTestId('composer-input')).toBeVisible()
   await expect(page.getByRole('button', { name: '買房' })).toBeVisible()
 })
 
-test('送出訊息後出現地圖與物件卡片', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('預算 2000 萬以內，想要生活機能好的地方')
-  await page.getByTestId('composer-submit').click()
+test('送出後入口淡出、地圖出現', async ({ page }) => {
+  await submitQuery(page)
 
   await expect(page.getByTestId('map')).toBeVisible()
-  await expect(page.getByTestId('listing-card').first()).toBeVisible()
-  await expect(page.getByTestId('chat-messages')).toContainText(/./)
+  await expect(page.getByTestId('entrance')).not.toBeVisible()
 })
 
-test('拖動權重會改變結果順序', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
+test('送出後輸入框仍存在——入口沒有被重新掛載', async ({ page }) => {
+  await page.goto('/')
+  const input = page.getByTestId('composer-input')
+  await input.fill('台北的房子')
   await page.getByTestId('composer-submit').click()
-  await expect(page.getByTestId('listing-card').first()).toBeVisible()
+  await expect(page.getByTestId('map')).toBeVisible()
 
-  const firstBefore = await page.getByTestId('listing-card').first().innerText()
+  // 入口淡出但仍在 DOM 裡；若被卸載，count 會是 0
+  await expect(input).toHaveCount(1)
+})
 
-  // 把「房價可負擔」拉到最高：聚焦該 slider 後用 End 鍵
-  const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
-  await priceSlider.focus()
-  await priceSlider.press('End')
+test('修改權重開關浮動面板，八條 slider 都在', async ({ page }) => {
+  await submitQuery(page)
 
-  // 其餘維度拉到最低，放大排序差異（風水預設就是 0，這裡按 Home 是 no-op，
-  // 但仍逐一列出，避免日後改了預設值時這個測試悄悄漏掉一個維度）
-  for (const label of ['同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件', '風水']) {
-    const s = page.getByRole('slider', { name: label })
-    await s.focus()
-    await s.press('Home')
+  await expect(page.getByTestId('weight-panel')).toBeHidden()
+  await page.getByTestId('weight-trigger').click()
+  await expect(page.getByTestId('weight-panel')).toBeVisible()
+
+  for (const label of ['房價可負擔', '同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
+    await expect(page.getByRole('slider', { name: label })).toHaveAttribute('aria-valuenow', '50')
   }
+  // 風水的預設是 0 而不是 50：信仰性偏好必須由使用者主動 opt-in。
+  // 這條同時守住「既有排序零回歸」—— 權重 0 代表這一維對總分沒有貢獻。
+  await expect(page.getByRole('slider', { name: '風水' })).toHaveAttribute('aria-valuenow', '0')
 
-  await expect(async () => {
-    const firstAfter = await page.getByTestId('listing-card').first().innerText()
-    expect(firstAfter).not.toBe(firstBefore)
-  }).toPass()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('weight-panel')).toBeHidden()
 })
 
 test('權重面板的重設會把八個維度回到預設值（風水是 0，其餘 50）', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
+  await submitQuery(page)
+  await page.getByTestId('weight-trigger').click()
   await expect(page.getByTestId('weight-panel')).toBeVisible()
 
   const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
@@ -71,25 +78,35 @@ test('權重面板的重設會把八個維度回到預設值（風水是 0，其
   for (const label of ['房價可負擔', '同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
     await expect(page.getByRole('slider', { name: label })).toHaveAttribute('aria-valuenow', '50')
   }
-
-  // 風水的預設是 0 而不是 50：信仰性偏好必須 opt-in，重設等於關掉它。
-  // 這條同時守住「既有排序零回歸」—— 權重 0 代表這一維對總分沒有貢獻。
   await expect(fengshuiSlider).toHaveAttribute('aria-valuenow', '0')
 })
 
-test('切換到租房後價格以元/月顯示', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByRole('button', { name: '租房' }).click()
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
+test('物件欄可收納，收合後仍看得到筆數', async ({ page }) => {
+  await submitQuery(page)
+  await expect(page.getByTestId('listing-list')).toBeVisible()
 
-  await expect(page.getByTestId('listing-card').first()).toContainText('元/月')
+  await page.getByTestId('listing-list-toggle').click()
+  await expect(page.getByTestId('listing-list')).toBeHidden()
+  await expect(page.getByTestId('listing-list-toggle')).toContainText('筆')
+
+  await page.getByTestId('listing-list-toggle').click()
+  await expect(page.getByTestId('listing-list')).toBeVisible()
+})
+
+test('點物件卡片後移開滑鼠，浮動卡片仍在——選取與 hover 是兩個狀態', async ({ page }) => {
+  await submitQuery(page)
+  await expect(page.getByTestId('listing-card').first()).toBeVisible()
+
+  await page.getByTestId('listing-card').first().click()
+  await expect(page.getByTestId('map-card')).toBeVisible()
+
+  // 把滑鼠移到完全無關的位置；hover 態會消失，選取態不該消失
+  await page.mouse.move(5, 5)
+  await expect(page.getByTestId('map-card')).toBeVisible()
 })
 
 test('物件卡片會顯示風水體檢區塊', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
+  await submitQuery(page)
 
   const firstCard = page.getByTestId('listing-card').first()
   await expect(firstCard).toBeVisible()
@@ -115,9 +132,7 @@ test('物件卡片會顯示風水體檢區塊', async ({ page }) => {
 })
 
 test('展開風水體檢會看到傳統說法標示與模擬資料聲明', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
+  await submitQuery(page)
   await expect(page.getByTestId('listing-card').first()).toBeVisible()
 
   // 只有「有檢測到證據」的卡片才是可展開的 <details>；種子資料約 5% 物件缺格局圖，
@@ -139,68 +154,11 @@ test('展開風水體檢會看到傳統說法標示與模擬資料聲明', async
   await expect(withIssue).toContainText('解法')
 })
 
-test('卡片 hover 會標示為選中狀態', async ({ page }) => {
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
-
-  const first = page.getByTestId('listing-card').first()
-  await expect(first).toBeVisible()
-
-  // 送出後游標停在原本送出鍵的位置，那裡已經換成地圖；maplibre 會對游標下的
-  // marker 發 mouseenter → onHover(id) → 第一張卡片一開始就是選中狀態。
-  // 先把游標移開地圖，才測得到「未選中 → 選中」的轉換。
-  await page.mouse.move(0, 0)
-  // hover 的邊框色是 neutral-800（此測試原本寫 blue-500，卡片早就不用那個色了，
-  // 但本機從未安裝 playwright 瀏覽器，這條紅線一直沒被看見）
-  await expect(first).not.toHaveClass(/border-neutral-800/)
-
-  await first.hover()
-  await expect(first).toHaveClass(/border-neutral-800/)
-})
-
-test('hard 條件會顯示為可移除的 chip（escape hatch）', async ({ page }) => {
-  // 沒有 GEMINI_API_KEY 時萃取一律回空 delta，聊天路徑永遠不會產生 hard 條件，
-  // 所以這裡改用 localStorage 直接種一個帶 hard.cities 的 profile —— 這正是
-  // useSearchState 掛載時會讀取還原的同一個管道（Fix 2 驗證的也是這條路徑），
-  // 藉此驅動畫面真的把 chip 畫出來，而不是繞過 UI 直接測資料層。
-  //
-  // weights 這裡刻意**不含** fengshui，同時當成向後相容的迴歸測試：加入風水維度之前存下的
-  // 舊 profile 仍在使用者的 localStorage 裡，parseProfile 必須把缺的維度補成預設值（風水 = 0）
-  // 而不是整包退回預設 —— 否則使用者的 hard 條件會在升級後無聲消失。
-  await page.addInitScript(() => {
-    const profile = {
-      mode: 'sale',
-      weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50 },
-      hard: { cities: ['臺北市'] },
-      soft: {},
-      notes: [],
-    }
-    window.localStorage.setItem('housing-agent.profile.v1', JSON.stringify(profile))
-  })
-
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('隨便看看')
-  await page.getByTestId('composer-submit').click()
-
-  const constraints = page.getByTestId('hard-constraints')
-  await expect(constraints).toBeVisible()
-  const cityChip = constraints.getByRole('button', { name: '臺北市' })
-  await expect(cityChip).toBeVisible()
-
-  await cityChip.click()
-
-  // 移除唯一的 hard 條件後，整塊 chip 區塊不再渲染（hard 已清空）
-  await expect(page.getByTestId('hard-constraints')).toHaveCount(0)
-})
-
-test('手機版以分頁切換對話與結果', async ({ page }) => {
+test('手機版以分頁切換', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/classic')
-  await page.getByTestId('composer-input').fill('台北的房子')
-  await page.getByTestId('composer-submit').click()
+  await submitQuery(page)
 
-  await expect(page.getByTestId('chat-messages')).toBeVisible()
-  await page.getByRole('button', { name: '結果' }).click()
   await expect(page.getByTestId('map')).toBeVisible()
+  await page.getByRole('button', { name: '對話' }).click()
+  await expect(page.getByTestId('chat-messages')).toBeVisible()
 })

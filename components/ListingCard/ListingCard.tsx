@@ -9,7 +9,9 @@ interface Props {
   listing: ScoredListing
   rank: number
   hovered: boolean
+  selected: boolean
   onHover: (id: string | null) => void
+  onSelect: (id: string | null) => void
 }
 
 /**
@@ -31,17 +33,23 @@ function extremes(listing: ScoredListing): { best: WeightKey; worst: WeightKey |
   return { best: sorted[0], worst: sorted.length > 1 ? sorted[sorted.length - 1] : null }
 }
 
-export function ListingCard({ listing, rank, hovered, onHover }: Props) {
+export function ListingCard({ listing, rank, hovered, selected, onHover, onSelect }: Props) {
   const f = listing.features
   const { best, worst } = extremes(listing)
 
   return (
     <article
+      role="button"
+      tabIndex={0}
       onMouseEnter={() => onHover(listing.id)}
       onMouseLeave={() => onHover(null)}
+      onClick={() => onSelect(listing.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(listing.id) }
+      }}
       data-testid="listing-card"
-      className={`w-[18.5rem] shrink-0 rounded-lg border bg-white p-3 transition ${
-        hovered ? 'border-neutral-800 shadow-md' : 'border-neutral-200'
+      className={`w-[18.5rem] shrink-0 cursor-pointer rounded-lg border bg-white p-3 transition ${
+        selected ? 'border-neutral-900 ring-1 ring-neutral-900' : hovered ? 'border-neutral-800 shadow-md' : 'border-neutral-200'
       }`}
     >
       <div className="flex items-start justify-between gap-2">
