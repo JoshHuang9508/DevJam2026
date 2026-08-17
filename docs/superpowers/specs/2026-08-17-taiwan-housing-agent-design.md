@@ -30,7 +30,7 @@
 
 | 層 | 選擇 | 理由 |
 | --- | --- | --- |
-| 框架 | Next.js 15 App Router + TypeScript | 前端、API、資料腳本同一 repo 同一語言；Route Handler 直接支援 SSE 串流 |
+| 框架 | Next.js App Router + TypeScript | 前端、API、資料腳本同一 repo 同一語言；Route Handler 直接支援 SSE 串流。版本不釘死，實作時取當下穩定版（2026-08 實際安裝為 16.3.1） |
 | UI | Tailwind CSS v4 + Radix UI primitives | 權重面板需要無障礙的 slider；直接用 Radix primitive（即 shadcn/ui 的底層），省去 shadcn CLI 的初始化與版本相依 |
 | 地圖 | MapLibre GL JS + OSM/Carto 免費 vector tile | 無 API token、內建 cluster、萬筆點位仍流暢 |
 | 資料庫 | SQLite（better-sqlite3）+ Drizzle ORM | demo 零維運；上線換 Turso/Postgres 僅換 driver |

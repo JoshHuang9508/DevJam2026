@@ -6,7 +6,13 @@
 
 **Architecture:** Next.js 15 全端單體。Gemini 只負責「自然語言 → SearchProfile 變動量」與「結果 → 人話解釋」；排序由 `lib/scoring` 的純函式完成，可單元測試、毫秒回應、權重面板拖動時不呼叫 LLM。所有物件特徵在資料層預先算好，線上查詢零外部 API。
 
-**Tech Stack:** Next.js 15 (App Router) / React 19 / TypeScript strict / Tailwind CSS v4 / MapLibre GL JS / SQLite + Drizzle ORM / `@google/genai` / Zod / Vitest / Playwright / pnpm
+**Tech Stack:** Next.js (App Router) / React 19 / TypeScript strict / Tailwind CSS v4 / MapLibre GL JS / SQLite + Drizzle ORM / `@google/genai` / Zod / Vitest / Playwright / pnpm
+
+**實際解析到的版本**（Task 1 安裝，`next build` 與 `tsc` 皆通過）：`next@16.3.1`、`typescript@7.0.2`、
+`react@19.2.8`、`zod@4.4.3`、`drizzle-orm@0.45.2`、`vitest@4.1.10`、`maplibre-gl@6.3.0`、
+`@google/genai@2.17.1`、`better-sqlite3@13.0.3`。本計畫的程式碼是對著較早的主版本寫的，
+因此 Task 5（maplibre-gl v6）與 Task 7（`@google/genai` v2）的實作者**必須先讀 `node_modules`
+裡該套件的實際型別定義**再抄寫，API 有搬動就調整呼叫端並在報告中列為 concern；行為不得改變。
 
 **Spec:** `docs/superpowers/specs/2026-08-17-taiwan-housing-agent-design.md`
 
