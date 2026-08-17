@@ -195,8 +195,9 @@ export function toSearchProfile(
   else delete hard.needParking
   if (typeof hardIn.maxCommuteMinutes === 'number') hard.maxCommuteMinutes = hardIn.maxCommuteMinutes
   else delete hard.maxCommuteMinutes
-  // 步行分鐘 → 公里。每分鐘 80 公尺，與 pipeline 估通勤時間用的是同一個假設。
-  if (typeof hardIn.maxWalkMinutesToMetro === 'number') hard.maxDistToMetro = (hardIn.maxWalkMinutesToMetro * 80) / 1000
+  // 步行分鐘 → **公尺**。每分鐘 80 公尺，與 pipeline 估通勤時間用的是同一個假設。
+  // 單位必須跟 features.distToMetro 一致（公尺），dimensions.ts 的門檻常數也是公尺。
+  if (typeof hardIn.maxWalkMinutesToMetro === 'number') hard.maxDistToMetro = hardIn.maxWalkMinutesToMetro * 80
   else delete hard.maxDistToMetro
 
   const softOut: SearchProfile['soft'] = { ...base.soft }

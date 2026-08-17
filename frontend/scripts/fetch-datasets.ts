@@ -26,13 +26,42 @@ import {
   liquefactionLevel, type PoiIndex, type Point,
 } from '../lib/pipeline/sources/geo'
 import { fetchLvr, isResidential, type LvrRecord } from '../lib/pipeline/sources/lvr'
+import { fetchTransport } from '../lib/pipeline/sources/transport'
 import { fetchAqiStations, fetchClimateStations, nearestStation } from '../lib/pipeline/sources/weather'
 import { haversineMeters, log } from '../lib/pipeline/util'
 
 const DB_PATH = process.env.DATABASE_PATH ?? './data/app.db'
 const CACHE_DIR = process.env.PIPELINE_CACHE_DIR ?? './data/cache'
-/** 臺北車站，通勤時間的參考終點。 */
-const CBD: Point = { lat: 25.0478, lng: 121.517 }
+/**
+ * 各縣市的通勤參考終點（市中心／主要車站）。
+ *
+ * 原本全台一律用臺北車站，對高雄的房子而言「到臺北車站要 280 分鐘」毫無意義，
+ * 而且會讓所有非北部物件的通勤分數一律墊底。
+ */
+const CITY_CBD: Record<string, Point> = {
+  臺北市: { lat: 25.0478, lng: 121.5170 }, // 臺北車站
+  新北市: { lat: 25.0478, lng: 121.5170 }, // 通勤圈仍以臺北車站為主
+  基隆市: { lat: 25.1319, lng: 121.7396 },
+  桃園市: { lat: 24.9892, lng: 121.3140 },
+  新竹市: { lat: 24.8016, lng: 120.9715 },
+  新竹縣: { lat: 24.8016, lng: 120.9715 },
+  苗栗縣: { lat: 24.5654, lng: 120.8214 },
+  臺中市: { lat: 24.1369, lng: 120.6869 },
+  彰化縣: { lat: 24.0813, lng: 120.5385 },
+  南投縣: { lat: 23.9099, lng: 120.6858 },
+  雲林縣: { lat: 23.7092, lng: 120.4313 },
+  嘉義市: { lat: 23.4791, lng: 120.4416 },
+  嘉義縣: { lat: 23.4791, lng: 120.4416 },
+  臺南市: { lat: 22.9970, lng: 120.2126 },
+  高雄市: { lat: 22.6396, lng: 120.3021 },
+  屏東縣: { lat: 22.6689, lng: 120.4874 },
+  宜蘭縣: { lat: 24.7546, lng: 121.7581 },
+  花蓮縣: { lat: 23.9930, lng: 121.6011 },
+  臺東縣: { lat: 22.7972, lng: 121.1236 },
+  澎湖縣: { lat: 23.5655, lng: 119.5664 },
+  金門縣: { lat: 24.4321, lng: 118.3171 },
+  連江縣: { lat: 26.1608, lng: 119.9509 },
+}
 
 interface Options {
   only: Set<string>
@@ -111,7 +140,17 @@ async function main(): Promise<void> {
   const poi: PoiIndex = wants('poi')
     ? await fetchPoi(CACHE_DIR)
     : { convenience: [], supermarket: [], school: [], hospital: [], park: [], restaurant: [] }
-  const mrt = wants('mrt') ? await fetchMrtExits(CACHE_DIR) : []
+  // 站點與線形。OSM 一次涵蓋全台所有系統（北中南桃捷運、台鐵、高鐵），
+  // data.taipei 只有北捷，非雙北的物件會全部拿不到軌道距離。
+  const transport = wants('mrt')
+    ? await fetchTransport(CACHE_DIR).catch(fail('交通圖資'))
+    : []
+  const t = Array.isArray(transport)
+    ? { trainStations: [], metroStations: [], busStops: [], mainRoadPoints: [], railwayPoints: [] }
+    : transport
+  // data.taipei 的北捷出入口比 OSM 精確（出入口而非站中心），兩者合併
+  const taipeiExits = wants('mrt') ? await fetchMrtExits(CACHE_DIR).catch(fail('北捷出入口')) : []
+  const metroPoints = [...t.metroStations, ...taipeiExits]
   const liquefaction = wants('hazard') ? await fetchLiquefaction(CACHE_DIR).catch(fail('液化')) : []
   const flood = wants('hazard') ? await fetchFloodPoints(CACHE_DIR).catch(fail('淹水')) : []
   const climate = wants('climate') ? await fetchClimateStations(CACHE_DIR, process.env.CWA_API_KEY).catch(fail('氣候')) : []
@@ -131,7 +170,11 @@ async function main(): Promise<void> {
     hospital: new GridIndex(poi.hospital),
     park: new GridIndex(poi.park),
     restaurant: new GridIndex(poi.restaurant),
-    mrt: new GridIndex(mrt),
+    metro: new GridIndex(metroPoints),
+    train: new GridIndex(t.trainStations),
+    bus: new GridIndex(t.busStops),
+    mainRoad: new GridIndex(t.mainRoadPoints),
+    railway: new GridIndex(t.railwayPoints),
     flood: new GridIndex(flood),
   }
 
@@ -182,7 +225,8 @@ async function main(): Promise<void> {
       @distToMetro, @distToTrain, @distToBus, @commuteToCbdMin,
       @districtMedianUnitPrice, @pricePercentile, @distToMainRoad, @distToRail,
       @floodIncidents500, @liquefactionLevel,
-      NULL, NULL, NULL, NULL, NULL, NULL, NULL, @fsRoadRush
+      @fsEntryWindowAligned, @fsEntryScreen, @fsStoveVisibleFromDoor, @fsToiletFacingDoor,
+      @fsBeamOverBed, @fsLivingRoomDepthM, @fsDaylightBlocked, @fsRoadRush
     )`)
 
   const write = db.transaction(() => {
@@ -240,7 +284,13 @@ async function main(): Promise<void> {
 
       const climateStation = nearestStation(point, climate)
       const aqiStation = nearestStation(point, aqi)
-      const distToMetro = mrt.length ? grids.mrt.nearestMeters(point) : null
+      // 單位一律**公尺**。lib/scoring/dimensions.ts 的 RAIL_WALKABLE_M 等常數都是公尺，
+      // 之前這裡寫公里，location 維度算出來的分數對每一筆都趨近 1，等於整個維度沒作用。
+      const distToMetro = metroPoints.length ? grids.metro.nearestMeters(point, 8000) : null
+      const distToTrain = t.trainStations.length ? grids.train.nearestMeters(point, 15000) : null
+      const distToBus = t.busStops.length ? grids.bus.nearestMeters(point, 3000) : null
+      const distToMainRoad = t.mainRoadPoints.length ? grids.mainRoad.nearestMeters(point, 5000) : null
+      const distToRail = t.railwayPoints.length ? grids.railway.nearestMeters(point, 5000) : null
       const floodNearby = flood.length ? grids.flood.countWithin(point, 500) : 0
       const liquefaction3 = liquefactionLevel(point, liquefaction)
 
@@ -267,18 +317,19 @@ async function main(): Promise<void> {
         r5: count(grids.restaurant, point, 500, coverage.restaurant),
         r1k: count(grids.restaurant, point, 1000, coverage.restaurant),
 
-        distToMetro: distToMetro === null ? null : round(distToMetro / 1000, 3),
-        // 台鐵／公車站要 TDX（需申請帳號審核），還沒接，留 null 讓 dataGaps 標示
-        distToTrain: null,
-        distToBus: null,
-        commuteToCbdMin: estimateCommuteMinutes(point, distToMetro),
+        distToMetro: distToMetro === null ? null : Math.round(distToMetro),
+        distToTrain: distToTrain === null ? null : Math.round(distToTrain),
+        distToBus: distToBus === null ? null : Math.round(distToBus),
+        commuteToCbdMin: estimateCommuteMinutes(point, record.city, distToMetro, distToTrain),
 
         districtMedianUnitPrice: median(bucket),
         pricePercentile: percentile(bucket, record.unitPrice),
 
-        distToMainRoad: null,
-        distToRail: null,
-        fsRoadRush: null,
+        distToMainRoad: distToMainRoad === null ? null : Math.round(distToMainRoad),
+        distToRail: distToRail === null ? null : Math.round(distToRail),
+
+        // ⚠ 風水證據是**擲骰產生的假資料**，見 fengshuiEvidence 的說明。
+        ...fengshuiEvidence(id, record),
 
         // null 與 0 的差別很重要：null＝沒查（沒抓災點資料），0＝查過但附近沒有。
         // 前者會被 fillDataGaps 補中位數並標進 dataGaps，後者是真的安全。
@@ -295,6 +346,53 @@ async function main(): Promise<void> {
 
   log('pipeline', `完成，耗時 ${Math.round((Date.now() - started) / 1000)}s：`
     + counts.map((c) => `${c.mode}=${c.n}`).join(' '))
+}
+
+/**
+ * ⚠ **風水證據是假的。**
+ *
+ * 這八個欄位需要判讀格局圖、照片或街景，實價登錄完全沒有這些資訊，短期內也做不出來。
+ * 依需求破例用擲骰產生，讓風水維度有東西可以算，而不是整維失效。
+ *
+ * 用門牌雜湊當種子而不是 Math.random()：同一間房子每次跑 pipeline 都要得到同一組值，
+ * 否則每天更新資料後排名會無故跳動，使用者會以為系統壞了。
+ *
+ * 機率不是均勻亂數，而是依屋齡、樓層、坪數調整過的 —— 老公寓比新大樓更可能有樑壓床、
+ * 低樓層更可能採光受阻。這讓假資料至少在統計上像真的，但**它仍然是假的**：
+ * 卡片上說某間房子有穿堂煞，不代表它真的有。前端必須標示清楚。
+ */
+function fengshuiEvidence(id: string, record: LvrRecord): Record<string, number | null> {
+  let h = 2166136261
+  for (let i = 0; i < id.length; i += 1) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) }
+  let cursor = h >>> 0
+  const rand = () => {
+    // xorshift32：同一個種子必然產生同一串值
+    cursor ^= cursor << 13; cursor >>>= 0
+    cursor ^= cursor >>> 17
+    cursor ^= cursor << 5; cursor >>>= 0
+    return cursor / 4294967296
+  }
+  const flag = (p: number) => (rand() < p ? 1 : 0)
+
+  const old = record.age >= 30
+  const lowFloor = record.floor <= 3
+  const small = record.area <= 20
+
+  return {
+    // 小坪數的開放式格局較容易前後門窗對齊
+    fsEntryWindowAligned: flag(small ? 0.30 : 0.18),
+    // 有玄關屏風是化解手段，新屋比較常見
+    fsEntryScreen: flag(old ? 0.25 : 0.45),
+    fsStoveVisibleFromDoor: flag(small ? 0.35 : 0.20),
+    fsToiletFacingDoor: flag(0.15),
+    // 老屋樑柱外露的比例高
+    fsBeamOverBed: flag(old ? 0.35 : 0.18),
+    // 明堂縱深（公尺），跟坪數正相關
+    fsLivingRoomDepthM: Math.round((2.0 + Math.sqrt(record.area) * 0.35 + rand() * 1.2) * 10) / 10,
+    // 低樓層採光受阻的機率高很多
+    fsDaylightBlocked: flag(lowFloor ? 0.40 : 0.12),
+    fsRoadRush: flag(0.12),
+  }
 }
 
 /** 依 key 分群取座標平均。用來從已精確定位的物件反推行政區／縣市重心。 */
@@ -356,10 +454,19 @@ function inBbox(p: Point, b: Bbox): boolean {
  * 到臺北車站的通勤時間估計。沒有接 TDX 的站間旅行時間，所以是個粗估：
  * 走到最近捷運站的步行時間 + 直線距離換算的搭乘時間。標成估計值，不要當真。
  */
-function estimateCommuteMinutes(point: Point, distToMetroMeters: number | null): number | null {
-  if (distToMetroMeters === null) return null
-  const walkMinutes = distToMetroMeters / 80 // 每分鐘 80 公尺
-  const railKm = haversineMeters(point, CBD) / 1000
+function estimateCommuteMinutes(
+  point: Point,
+  city: string,
+  distToMetroMeters: number | null,
+  distToTrainMeters: number | null,
+): number | null {
+  const cbd = CITY_CBD[city]
+  if (!cbd) return null
+  // 走到最近的軌道站（捷運或台鐵，取近的那個）
+  const access = [distToMetroMeters, distToTrainMeters].filter((v): v is number => v !== null)
+  if (access.length === 0) return null
+  const walkMinutes = Math.min(...access) / 80 // 每分鐘 80 公尺
+  const railKm = haversineMeters(point, cbd) / 1000
   return Math.round((walkMinutes + railKm * 2.2 + 4) * 10) / 10
 }
 

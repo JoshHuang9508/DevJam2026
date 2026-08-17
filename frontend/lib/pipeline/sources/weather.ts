@@ -121,23 +121,63 @@ interface CwaStationMeta {
 /* ------------------------------------------------------------------ */
 
 const MOENV_AQI = 'https://data.moenv.gov.tw/api/v2/aqx_p_432'
+const MOENV_AQI_HISTORY = 'https://data.moenv.gov.tw/api/v2/aqx_p_488'
+/** 取最近幾個月算平均。逐時值一天內就能差三倍，單一快照當不了「這裡空氣好不好」。 */
+const AQI_MONTHS = 3
 
 export interface AqiStation extends Point { aqi: number }
 
-export async function fetchAqiStations(cacheDir: string, apiKey?: string): Promise<AqiStation[]> {
+/**
+ * 空品測站的**多月平均** AQI。
+ *
+ * 原本抓 aqx_p_432（逐時即時值）直接當 aqi_mean —— 那是快照不是平均，
+ * 下雨天全台都會看起來很乾淨，欄位名卻叫 mean，會讓人以為是長期水準。
+ * 改成抓 aqx_p_488 歷史資料取最近幾個月平均；歷史抓不到才退回即時值，
+ * 並在日誌講明退回了。
+ */
+export async function fetchAqiStations(cacheDir: string, apiKey?: string, now = new Date()): Promise<AqiStation[]> {
   if (!apiKey) {
     log('aqi', '沒有 MOENV_API_KEY，略過空品資料（欄位保持 null）')
     return []
   }
+
+  const sums = new Map<string, { lat: number; lng: number; total: number; n: number }>()
+  let months = 0
+  for (let i = 1; i <= AQI_MONTHS; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const ym = `${d.getFullYear()}_${String(d.getMonth() + 1).padStart(2, '0')}`
+    try {
+      // 參數是 year_month，不是 filters —— 用 filters 會回 HTTP 500「查詢條件存在未知欄位」
+      const url = `${MOENV_AQI_HISTORY}?api_key=${encodeURIComponent(apiKey)}&limit=1000&format=JSON&year_month=${ym}`
+      const buf = await fetchCached(url, `${cacheDir}/moenv-aqi-${ym}.json`, { maxAgeMs: 30 * 86400_000 })
+      const rows = toRows(new TextDecoder().decode(buf))
+      if (rows.length === 0) continue
+      months += 1
+      for (const row of rows) {
+        const lat = Number(row.latitude); const lng = Number(row.longitude); const aqi = Number(row.aqi)
+        const key = String(row.sitename ?? `${lat},${lng}`)
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(aqi)) continue
+        const acc = sums.get(key)
+        if (acc) { acc.total += aqi; acc.n += 1 }
+        else sums.set(key, { lat, lng, total: aqi, n: 1 })
+      }
+    } catch {
+      // 某個月抓不到就跳過，不要讓整個來源失敗
+    }
+  }
+
+  if (sums.size > 0) {
+    const stations = [...sums.values()].map((v) => ({ lat: v.lat, lng: v.lng, aqi: Math.round((v.total / v.n) * 10) / 10 }))
+    log('aqi', `${stations.length} 個空品測站（最近 ${months} 個月平均，共 ${[...sums.values()].reduce((a, v) => a + v.n, 0)} 筆觀測）`)
+    return stations
+  }
+  log('aqi', '歷史空品資料取不到，退回即時快照 —— 這是當下的值，不是平均')
   const url = `${MOENV_AQI}?api_key=${encodeURIComponent(apiKey)}&limit=1000&format=JSON`
   // 逐時更新，但我們只要一個「大概多乾淨」的值，快取 6 小時就好
   const buffer = await fetchCached(url, `${cacheDir}/moenv-aqi.json`, { maxAgeMs: 6 * 3600_000 })
   // 實測 format=JSON 回的是**頂層陣列**，不是 { records: [...] }。兩種都吃，
   // 因為官方文件寫的是後者，哪天他們改回去也不會壞。
-  const json = JSON.parse(new TextDecoder().decode(buffer)) as
-    | Record<string, string>[]
-    | { records?: Record<string, string>[] }
-  const rows = Array.isArray(json) ? json : json.records ?? []
+  const rows = toRows(new TextDecoder().decode(buffer))
 
   const stations: AqiStation[] = []
   for (const row of rows) {
@@ -181,4 +221,13 @@ function sum(values: (number | null)[]): number | null {
   const valid = values.filter((v): v is number => v !== null)
   if (!valid.length) return null
   return Math.round(valid.reduce((a, b) => a + b, 0) * 10) / 10
+}
+
+/**
+ * 環境部的 JSON 有兩種形狀：頂層陣列（實測 aqx_p_432）與 { records: [...] }（文件寫的、
+ * 歷史資料集實際用的）。兩種都吃，哪一邊改了都不會壞。
+ */
+function toRows(text: string): Record<string, string>[] {
+  const json = JSON.parse(text) as Record<string, string>[] | { records?: Record<string, string>[] }
+  return Array.isArray(json) ? json : json.records ?? []
 }
