@@ -156,8 +156,9 @@ export function AgentApp() {
 
   return (
     <main className="relative flex h-screen overflow-hidden bg-neutral-50">
-      {/* 入口：未開始時置中；開始後淡出並上移，不卸載 */}
+      {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 讓 started 後它退出無障礙樹與焦點順序 */}
       <div
+        inert={started}
         className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         }`}
@@ -172,10 +173,10 @@ export function AgentApp() {
         />
       </div>
 
+      {/* 入口是不透明的 absolute inset-0，開始前已完全遮住這裡；不需要另外淡入，避免雙重表頭同時可見 */}
       <aside
-        className={`flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white transition-opacity duration-[240ms] ${
-          started ? 'opacity-100' : 'opacity-0'
-        }`}
+        inert={!started}
+        className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white"
       >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
