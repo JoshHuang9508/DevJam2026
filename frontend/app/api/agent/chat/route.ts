@@ -72,14 +72,20 @@ export async function POST(request: Request): Promise<Response> {
 
       let sessionId = raw?.sessionId
       try {
+        const preferencePatch = toPreferencePatch(clientProfile)
         if (!sessionId) {
           sessionId = (await createSession()).id
+          await patchPreferences(sessionId, preferencePatch)
+        } else {
+          try {
+            await patchPreferences(sessionId, preferencePatch)
+          } catch (error) {
+            if (!(error instanceof BackendError) || error.status !== 404) throw error
+            sessionId = (await createSession()).id
+            await patchPreferences(sessionId, preferencePatch)
+          }
         }
         send('session', { sessionId })
-
-        // Adopt whatever the user changed on the sliders before the agent runs,
-        // so the agent reasons from the state the user is actually looking at.
-        await patchPreferences(sessionId, toPreferencePatch(clientProfile)).catch(() => undefined)
 
         if (!listingsDbAvailable()) {
           send('error', { message: '物件資料庫尚未建立，請先執行 pnpm db:push && pnpm db:seed。行政區排序仍可運作。' })

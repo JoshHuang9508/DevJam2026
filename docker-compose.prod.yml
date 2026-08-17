@@ -1,0 +1,65 @@
+# 正式環境：只有前端對外，後端只存在於 compose 內網。
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# 機密放在同目錄的 .env（compose 會自動載入，且有 gitignore）。刻意不叫 .env.prod：
+# 那需要每個指令都帶 --env-file，漏帶的話連 `ps` 都會因為下面的 ${VAR:?} 而失敗。
+#
+# 對外由 cloudflare tunnel 打到 127.0.0.1:3000。後端刻意不寫 ports：
+# 一旦發布到主機，35.236.161.192:3001 就會是一個完全沒有驗證的 API。
+# 前端用 service name 連它就好，瀏覽器只看得到前端的 /api/*。
+
+services:
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3001"
+      # 沒有 PostgreSQL，session 存在記憶體，重啟會清空
+      REPOSITORY_MODE: memory
+      # 寫死 pi 而不是 auto：auto 會在金鑰壞掉時默默退回規則式 runtime，
+      # 症狀是「agent 突然變笨」而不是啟動失敗，很難發現。
+      AGENT_MODE: ${AGENT_MODE:-pi}
+      PI_PROVIDER: ${PI_PROVIDER:-google}
+      PI_MODEL: ${PI_MODEL:-gemini-flash-latest}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY 必須在 .env.prod 設定}
+      # 後端只被前端從 compose 內網呼叫，瀏覽器不會直接連它；
+      # 這裡填公開 origin 只是為了萬一開了 /api/backend/* 代理時仍然正確。
+      CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
+      REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1048576}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      BACKEND_URL: http://backend:3001
+      # /api/backend/* 是後端的無驗證全方法代理。正式環境維持關閉；
+      # app 本身用不到它，只有想從瀏覽器直接看 Swagger 才需要。
+      ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
+    ports:
+      # 只綁 loopback：cloudflared 跑在同一台主機上，走 127.0.0.1 就好。
+      # 綁 0.0.0.0 會讓 GCP 防火牆成為唯一一道防線。
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s

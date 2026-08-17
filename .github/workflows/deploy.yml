@@ -1,0 +1,143 @@
+name: Deploy
+
+# main 有變動就先做輕量檢查，過了才部署到正式機。
+# 手動觸發也可以（部署失敗要重跑時用）。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  # 這些不是機密，寫在這裡比塞進 secret 好維護。
+  # 唯一的 secret 是 DEPLOY_SSH_KEY。
+  DEPLOY_HOST: 35.236.161.192
+  DEPLOY_USER: devstar1219
+  APP_DIR: /opt/anjia
+  # 固定主機指紋，避免中間人。換機器要一起換。
+  KNOWN_HOSTS: 35.236.161.192 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK8BoIu1IHyMgGik7N3xOzPDiPy/V3BkaRjHFEJIylyN
+
+jobs:
+  check:
+    name: 輕量檢查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # better-sqlite3 的 install script 會叫 node-gyp，但 v13 已內建
+      # prebuilds/linux-x64.node，跳過 script 反而是唯一穩定的裝法。
+      # 單元測試在 594a2f9 全數移除，所以這裡只有 typecheck。
+      - name: 前端
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm exec tsc --noEmit
+
+      # --ignore-workspace：確保 pnpm 不會往上找到別的 workspace 設定而
+      # 讓依賴沒被連進 backend/node_modules（install 仍會「成功」，
+      # 直到 tsc 才以 TS2307 爆出來：@earendil-works/* 找不到）。
+      - name: 後端
+        working-directory: backend
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
+          pnpm typecheck
+          pnpm build
+
+  deploy:
+    name: 部署到正式機
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      # 沒有這一步的話，缺 secret 會變成 ssh 印一大段 usage 然後 exit 255，
+      # 完全看不出真正原因。
+      - name: 檢查 DEPLOY_SSH_KEY
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::尚未設定 secret DEPLOY_SSH_KEY"
+            exit 1
+          fi
+
+      - name: 設定 SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: 部署
+        run: |
+          # heredoc 用單引號括住 delimiter，內容不會被 runner 展開；
+          # 因此要透過 ssh 的指令字串把 APP_DIR 帶到遠端環境。
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "APP_DIR='$APP_DIR' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$APP_DIR"
+
+          echo "==> 取得 main 最新版本"
+          git fetch --prune origin
+          git reset --hard origin/main
+
+          echo "==> 重建並啟動"
+          # 機密在 /opt/anjia/.env，compose 會自動載入，不用 --env-file。
+          # --remove-orphans：compose 服務改名時清掉舊容器
+          docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+
+          echo "==> 等待健康檢查"
+          for i in $(seq 1 40); do
+            if [ "$(docker compose -f docker-compose.prod.yml ps --format json \
+                 | grep -c '"Health":"healthy"' || true)" -ge 2 ]; then
+              echo "兩個服務都 healthy"
+              break
+            fi
+            if [ "$i" = "40" ]; then
+              echo "!! 健康檢查逾時，印出日誌"
+              docker compose -f docker-compose.prod.yml logs --tail=80
+              exit 1
+            fi
+            sleep 3
+          done
+
+          # 這台只有 9.7G 磁碟，不清會在幾次部署後被舊映像檔塞爆
+          echo "==> 清掉沒被引用的舊映像檔"
+          docker image prune -f
+          docker builder prune -f --filter until=168h
+
+          docker compose -f docker-compose.prod.yml ps
+          REMOTE
+
+      - name: 煙霧測試
+        run: |
+          # 前端只綁 127.0.0.1，從外面連不到，所以走 ssh 在主機上測。
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" bash -s <<'REMOTE'
+          set -euo pipefail
+          echo "==> GET /"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 http://127.0.0.1:3000/)
+          echo "  HTTP $code"; [ "$code" = "200" ]
+
+          echo "==> GET /api/agent/session"
+          body=$(curl -s --max-time 30 http://127.0.0.1:3000/api/agent/session)
+          echo "  $body"
+          echo "$body" | grep -q '"backendUp":true'
+
+          # runtime 要是 pi-agent-core。回 deterministic 代表金鑰沒被讀到，
+          # agent 正在跑規則式 fallback —— 服務活著但功能是壞的。
+          echo "==> backend runtime"
+          rt=$(docker compose -f /opt/anjia/docker-compose.prod.yml exec -T backend \
+                 node -e "fetch('http://127.0.0.1:3001/health').then(r=>r.json()).then(j=>console.log(j.runtime))")
+          echo "  $rt"
+          [ "$rt" = "pi-agent-core" ]
+          REMOTE
