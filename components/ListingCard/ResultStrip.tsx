@@ -11,7 +11,7 @@ export function ResultStrip({ results, hoveredId, onHover }: Props) {
   if (results.length === 0) {
     return (
       <p className="p-4 text-sm text-neutral-500">
-        還沒有結果。描述一下你想要的生活，或直接調整右側的權重。
+        還沒有結果。描述一下你想要的生活，或直接調整權重面板。
       </p>
     )
   }

@@ -88,6 +88,37 @@ test('卡片 hover 會標示為選中狀態', async ({ page }) => {
   await expect(first).toHaveClass(/border-blue-500/)
 })
 
+test('hard 條件會顯示為可移除的 chip（escape hatch）', async ({ page }) => {
+  // 沒有 GEMINI_API_KEY 時萃取一律回空 delta，聊天路徑永遠不會產生 hard 條件，
+  // 所以這裡改用 localStorage 直接種一個帶 hard.cities 的 profile —— 這正是
+  // useSearchState 掛載時會讀取還原的同一個管道（Fix 2 驗證的也是這條路徑），
+  // 藉此驅動畫面真的把 chip 畫出來，而不是繞過 UI 直接測資料層。
+  await page.addInitScript(() => {
+    const profile = {
+      mode: 'sale',
+      weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50 },
+      hard: { cities: ['臺北市'] },
+      soft: {},
+      notes: [],
+    }
+    window.localStorage.setItem('housing-agent.profile.v1', JSON.stringify(profile))
+  })
+
+  await page.goto('/')
+  await page.getByTestId('composer-input').fill('隨便看看')
+  await page.getByTestId('composer-submit').click()
+
+  const constraints = page.getByTestId('hard-constraints')
+  await expect(constraints).toBeVisible()
+  const cityChip = constraints.getByRole('button', { name: '臺北市' })
+  await expect(cityChip).toBeVisible()
+
+  await cityChip.click()
+
+  // 移除唯一的 hard 條件後，整塊 chip 區塊不再渲染（hard 已清空）
+  await expect(page.getByTestId('hard-constraints')).toHaveCount(0)
+})
+
 test('手機版以分頁切換對話與結果', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')

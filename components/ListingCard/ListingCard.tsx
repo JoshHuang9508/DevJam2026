@@ -48,7 +48,9 @@ export function ListingCard({ listing, rank, hovered, onHover }: Props) {
       {listing.dataGaps.length > 0 && (
         <p className="mt-2 text-[11px] text-amber-700">部分資料不足，已用同區中位數估算</p>
       )}
-      <p className="mt-1 text-[11px] text-neutral-400">氣候為區域參考值，通勤為估計值</p>
+      <p className="mt-1 text-[11px] text-neutral-400">
+        本卡片為示範資料：價格、生活機能數量為模擬值，氣候為區域參考值，通勤為估計值
+      </p>
     </article>
   )
 }

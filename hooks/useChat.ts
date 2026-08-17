@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react'
 import { parseSseChunk } from '@/lib/client/sseClient'
+import { parseProfile } from '@/lib/profile/schema'
 import type { RankResult } from '@/lib/types/listing'
 import type { ChatMessage } from '@/lib/types/chat'
 import { WEIGHT_KEYS, type SearchProfile, type WeightKey } from '@/lib/types/profile'
@@ -62,7 +63,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
 
         for (const e of events) {
           if (e.event === 'profile') {
-            const next = e.data as SearchProfile
+            const next = parseProfile(e.data)
             appliedByChat.current = next
             search.setProfile(next)
             const diff = diffWeights(before, next)

@@ -21,7 +21,7 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
         <h2 className="text-sm font-semibold">權重</h2>
         <button
           type="button"
-          onClick={() => onChange({ ...profile, weights: { ...DEFAULT_PROFILE.weights } })}
+          onClick={() => onChange({ ...profile, weights: { ...DEFAULT_PROFILE.weights }, hard: {} })}
           className="text-xs text-neutral-500 underline hover:text-neutral-800"
         >
           重設

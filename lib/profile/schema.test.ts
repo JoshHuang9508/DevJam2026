@@ -26,6 +26,28 @@ describe('parseProfile', () => {
   })
 })
 
+describe('城市／行政區正規化', () => {
+  it('台北市正規化為臺北市', () => {
+    const p = parseProfile({ ...DEFAULT_PROFILE, hard: { cities: ['台北市'] } })
+    expect(p.hard.cities).toEqual(['臺北市'])
+  })
+
+  it('未知城市被丟棄，不讓幻覺城市把候選池濾成 0 筆', () => {
+    const p = parseProfile({ ...DEFAULT_PROFILE, hard: { cities: ['克拉克市'] } })
+    expect(p.hard.cities).toEqual([])
+  })
+
+  it('已知城市保留', () => {
+    const p = parseProfile({ ...DEFAULT_PROFILE, hard: { cities: ['高雄市'] } })
+    expect(p.hard.cities).toEqual(['高雄市'])
+  })
+
+  it('行政區只做字元正規化，不做白名單過濾', () => {
+    const p = parseProfile({ ...DEFAULT_PROFILE, hard: { districts: ['台北車站特區'] } })
+    expect(p.hard.districts).toEqual(['臺北車站特區'])
+  })
+})
+
 describe('profileDeltaSchema', () => {
   it('接受空物件', () => {
     expect(profileDeltaSchema.parse({})).toEqual({})

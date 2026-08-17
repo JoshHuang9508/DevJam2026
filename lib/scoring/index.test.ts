@@ -66,7 +66,7 @@ describe('score', () => {
     expect(high.breakdown.price.weight).toBeGreaterThan(low.breakdown.price.weight)
   })
 
-  it('breakdown 六維齊全，且 contribution = subscore × weight', () => {
+  it('breakdown 七維齊全，且 contribution = subscore × weight', () => {
     const [r] = score(profile(), [cheapPoorAmenities, pricyRichAmenities])
     for (const k of WEIGHT_KEYS) {
       const b = r.breakdown[k]
