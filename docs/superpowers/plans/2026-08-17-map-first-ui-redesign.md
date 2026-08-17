@@ -355,8 +355,13 @@ const started = messages.length > 0
 ```tsx
   return (
     <main className="relative flex h-screen overflow-hidden bg-neutral-50">
-      {/* 入口：未開始時置中；開始後淡出並上移，不卸載 */}
+      {/* 入口：未開始時置中；開始後淡出並上移，不卸載
+          inert 是必要的，不是加分項：opacity-0 不會把元素移出無障礙樹，
+          Playwright 判斷可見也只看 bounding box 與 visibility/display、不看 opacity。
+          少了它，入口與左欄的 ModeToggle 會同時存在兩個「買房」按鈕，
+          Task 6 的 getByRole('button', { name: '買房' }) 會無條件 ambiguous 而失敗。 */}
       <div
+        inert={started}
         className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         }`}
@@ -371,9 +376,16 @@ const started = messages.length > 0
         />
       </div>
 
-      {/* 左欄：對話 */}
-      <aside className={`flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white transition-opacity duration-[240ms] ${started ? 'opacity-100' : 'opacity-0'}`}>
-        {/* ...Task 4 之後的內容 */}
+      {/* 左欄：對話。
+          **不要做淡入。** 入口那層是 inset-0 且底色不透明，未開始時本來就把左欄整個蓋住；
+          入口淡出時左欄自然被揭開。若左欄也跟著淡入，兩份標題列會在那 240ms 內同時可見。
+          inert={!started} 的理由同入口那層。 */}
+      <aside
+        inert={!started}
+        className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white"
+      >
+        {/* 標題列（安家 / ModeToggle / 狀態燈）與訊息串沿用現有內容，
+            訊息容器要加 data-testid="chat-messages" */}
       </aside>
 
       {/* 中欄：地圖，從右滑入 */}
