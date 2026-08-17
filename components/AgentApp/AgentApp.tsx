@@ -10,6 +10,7 @@ import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
 import type { Candidate } from '@/lib/backend/types'
 import { PLACEHOLDERS } from '@/lib/client/placeholders'
+import { parseSseChunk } from '@/lib/client/sseClient'
 import { parseProfile } from '@/lib/profile/schema'
 import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
@@ -96,19 +97,10 @@ export function AgentApp() {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
-        let boundary = buffer.indexOf('\n\n')
-        while (boundary !== -1) {
-          const frame = buffer.slice(0, boundary)
-          buffer = buffer.slice(boundary + 2)
-          boundary = buffer.indexOf('\n\n')
+        const { events, rest } = parseSseChunk(buffer)
+        buffer = rest
 
-          const name = frame.match(/^event: (.+)$/m)?.[1]
-          const payload = frame.split('\n').filter((l) => l.startsWith('data:'))
-            .map((l) => l.slice(5).trim()).join('\n')
-          if (!name || !payload) continue
-          let data: unknown
-          try { data = JSON.parse(payload) } catch { continue }
-
+        for (const { event: name, data } of events) {
           switch (name) {
             case 'session':
               window.localStorage.setItem(SESSION_KEY, (data as { sessionId: string }).sessionId)
