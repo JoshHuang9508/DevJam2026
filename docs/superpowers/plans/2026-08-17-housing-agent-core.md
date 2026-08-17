@@ -3677,6 +3677,7 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
         description: '各維度權重的增減，範圍 -100 到 100，一般用 10 到 30',
         properties: {
           price: { type: Type.NUMBER },
+          value: { type: Type.NUMBER },
           weather: { type: Type.NUMBER },
           location: { type: Type.NUMBER },
           amenities: { type: Type.NUMBER },
