@@ -67,8 +67,12 @@ export class PiAgentRuntime implements AgentRuntime {
     if (event.type === "message_start" && event.message.role === "assistant" && !getMessageStarted()) {
       setMessageStarted();
       queue.push({ type: "message.started", ...meta() });
-    } else if (event.type === "message_update" && event.assistantMessageEvent.type === "text_delta") {
-      queue.push({ type: "message.delta", delta: event.assistantMessageEvent.delta, ...meta() });
+    } else if (event.type === "message_update") {
+      const inner = event.assistantMessageEvent;
+      if (inner.type === "text_delta") queue.push({ type: "message.delta", delta: inner.delta, ...meta() });
+      else if (inner.type === "thinking_start") queue.push({ type: "thinking.started", ...meta() });
+      else if (inner.type === "thinking_delta") queue.push({ type: "thinking.delta", delta: inner.delta, ...meta() });
+      else if (inner.type === "thinking_end") queue.push({ type: "thinking.completed", thinking: inner.content, ...meta() });
     } else if (event.type === "message_end" && event.message.role === "assistant" && !event.message.content.some((block) => block.type === "toolCall")) {
       queue.push({
         type: "message.completed",
@@ -81,11 +85,24 @@ export class PiAgentRuntime implements AgentRuntime {
       started.set(event.toolCallId, performance.now());
       queue.push({ type: "tool.started", toolCallId: event.toolCallId, toolName: event.toolName, arguments: event.args, ...meta() });
     } else if (event.type === "tool_execution_end") {
-      queue.push({ type: "tool.completed", toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError, durationMs: Math.round(performance.now() - (started.get(event.toolCallId) ?? performance.now())), ...meta() });
+      queue.push({
+        type: "tool.completed",
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        isError: event.isError,
+        durationMs: Math.round(performance.now() - (started.get(event.toolCallId) ?? performance.now())),
+        result: unwrapToolResult(event.result),
+        ...meta(),
+      });
     } else if (event.type === "turn_end" && event.message.role === "assistant" && event.message.errorMessage) {
       queue.push({ type: "error", code: "MODEL_ERROR", message: event.message.errorMessage, recoverable: true, ...meta() });
     } else if (event.type === "agent_end") {
       queue.end();
     }
   }
+}
+
+function unwrapToolResult(result: unknown): unknown {
+  if (result && typeof result === "object" && "details" in result) return (result as { details: unknown }).details;
+  return result;
 }

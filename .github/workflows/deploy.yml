@@ -111,10 +111,13 @@ jobs:
             sleep 3
           done
 
-          # 這台只有 9.7G 磁碟，不清會在幾次部署後被舊映像檔塞爆
+          # 這台只有 9.7G 磁碟，不清會在幾次部署後被舊映像檔塞爆。
+          # image prune 每次會回收被取代的舊 anjia-web（約 1G）；
+          # builder cache 留 72 小時，讓當天的重複部署還吃得到快取。
           echo "==> 清掉沒被引用的舊映像檔"
           docker image prune -f
-          docker builder prune -f --filter until=168h
+          docker builder prune -f --filter until=72h --max-used-space 2GB
+          df -h / | tail -1
 
           docker compose -f docker-compose.prod.yml ps
           REMOTE

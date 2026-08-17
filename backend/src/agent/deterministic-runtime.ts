@@ -16,13 +16,13 @@ export class DeterministicAgentRuntime implements AgentRuntime {
       yield { type: "tool.started", toolCallId: `${input.turnId}:preferences`, toolName: "update_preferences", arguments: patch, ...meta() };
       const session = await this.preferences.update(input.session.id, patch);
       yield { type: "preferences.updated", preferences: session.preferences, ...meta() };
-      yield { type: "tool.completed", toolCallId: `${input.turnId}:preferences`, toolName: "update_preferences", isError: false, durationMs: 0, ...meta() };
+      yield { type: "tool.completed", toolCallId: `${input.turnId}:preferences`, toolName: "update_preferences", isError: false, durationMs: 0, result: session.preferences, ...meta() };
     }
     yield { type: "tool.started", toolCallId: `${input.turnId}:rank`, toolName: "rank_candidates", arguments: {}, ...meta() };
     const candidates = await this.recommendations.searchAndRank(input.session.id, input.signal);
     yield { type: "candidates.updated", candidates, ...meta() };
     yield { type: "ranking.updated", candidates, ...meta() };
-    yield { type: "tool.completed", toolCallId: `${input.turnId}:rank`, toolName: "rank_candidates", isError: false, durationMs: 0, ...meta() };
+    yield { type: "tool.completed", toolCallId: `${input.turnId}:rank`, toolName: "rank_candidates", isError: false, durationMs: 0, result: candidates, ...meta() };
     const message = explain(candidates);
     yield { type: "message.delta", delta: message, ...meta() };
     yield { type: "message.completed", message, ...meta() };

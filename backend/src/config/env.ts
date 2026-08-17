@@ -28,7 +28,7 @@ const envSchema = z.object({
   URBAN_PLAN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   URBAN_PLAN_SLOW_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
   URBAN_PLAN_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(86_400_000),
-  CORS_ORIGINS: z.string().default("http://localhost:3000"),
+  CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:5173"),
   REQUEST_BODY_LIMIT: z.coerce.number().int().positive().default(1_048_576),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
 });

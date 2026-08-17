@@ -14,6 +14,9 @@ COPY . .
 # data/app.db 有 gitignore，映像檔必須自己產生種子資料
 RUN pnpm db:push && pnpm db:seed
 RUN pnpm build
+# 執行期用不到 typescript / tailwind / drizzle-kit / playwright，
+# 就地砍成 production 依賴，runtime stage 直接拿這一份。
+RUN pnpm prune --prod
 
 FROM base AS runtime
 ENV NODE_ENV=production
@@ -21,17 +24,21 @@ ENV PORT=3000
 # 後端只在 compose 內網可見，不對外發布 port
 ENV BACKEND_URL=http://backend:3001
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-# 這個專案沒有 public/ —— 加上去會讓 COPY 直接失敗
-COPY --from=build /app/data ./data
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/next.config.ts ./next.config.ts
+# 先建使用者，再用 COPY --chown 一次到位。
+# 分開寫 `RUN chown -R app:app /app` 會把整份 node_modules 重寫成新的一層
+# —— 實測讓映像檔多了 639MB，正式機只有 9.7G 磁碟，撐不起這種浪費。
+RUN groupadd -r app && useradd -r -g app app
 
-RUN groupadd -r app && useradd -r -g app app && chown -R app:app /app
+COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/.next ./.next
+# 這個專案沒有 public/ —— 加上去會讓 COPY 直接失敗
+COPY --from=build --chown=app:app /app/data ./data
+COPY --from=build --chown=app:app /app/package.json ./package.json
+COPY --from=build --chown=app:app /app/next.config.ts ./next.config.ts
+
 USER app
 
 EXPOSE 3000
 # 直接叫 next，不要走 pnpm：corepack 會在啟動時想下載 pnpm 到 $HOME/.cache，
-# 而 `useradd -r` 不會建家目錄，於是 app 使用者拿到 EACCES 無限重啟。
+# 而 `useradd -r` 不建家目錄，於是 app 使用者拿到 EACCES 無限重啟。
 CMD ["./node_modules/.bin/next", "start"]
