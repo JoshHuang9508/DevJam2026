@@ -98,7 +98,7 @@ pnpm add -D typescript @types/node @types/react @types/react-dom @types/better-s
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./*"] }
@@ -135,7 +135,12 @@ export default defineConfig({
     include: ['lib/**/*.test.ts'],
   },
   resolve: {
-    alias: { '@': path.resolve(process.cwd()) },
+    alias: {
+      '@': path.resolve(process.cwd()),
+      // server-only 在 Next 的 server bundle 外會直接拋錯，
+      // 換成空模組才能對 lib/db/client.ts 寫測試
+      'server-only': path.resolve(process.cwd(), 'lib/test-utils/server-only-stub.ts'),
+    },
   },
 })
 ```
@@ -152,15 +157,18 @@ export default {
 } satisfies Config
 ```
 
-`.gitignore`:
+`.gitignore`（`.superpowers/` 已存在於 repo，必須保留）:
 ```
 node_modules/
 .next/
+next-env.d.ts
+*.tsbuildinfo
 data/*.db
 data/cache/
 .env.local
 test-results/
 playwright-report/
+.superpowers/
 ```
 
 `.env.example`:
@@ -576,8 +584,9 @@ let cached: ReturnType<typeof drizzle> | null = null
 
 export function getDb() {
   if (!cached) {
+    // 唯讀連線不得設定 journal_mode —— 那是寫入操作，會拋
+    // SqliteError: attempt to write a readonly database。讀取端沿用寫入端建立的模式即可。
     const sqlite = new Database(DB_PATH, { readonly: true, fileMustExist: true })
-    sqlite.pragma('journal_mode = WAL')
     cached = drizzle(sqlite, { schema })
   }
   return cached
@@ -855,7 +864,62 @@ sqlite3 data/app.db "SELECT mode, COUNT(*) FROM listings GROUP BY mode;"
 ```
 Expected: `rent|180` 與 `sale|180`
 
-- [ ] **Step 14: Commit**
+- [ ] **Step 14: 為 `loadPool` 寫端對端測試**
+
+`getDb()` / `loadPool()` 是九個後續 task 共用的介面，卻是本 task 唯一沒有測試覆蓋的匯出。
+補上一個直接打真實種子資料庫的測試。
+
+`lib/test-utils/server-only-stub.ts`:
+```ts
+// vitest 用的空模組。正式執行時 Next 會解析到真正的 server-only 套件。
+export {}
+```
+
+`lib/db/client.test.ts`:
+```ts
+import { existsSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { loadPool } from './client'
+
+const DB_PATH = './data/app.db'
+
+describe('loadPool', () => {
+  it('資料庫存在（未建立請先跑 pnpm db:push && pnpm db:seed）', () => {
+    expect(existsSync(DB_PATH)).toBe(true)
+  })
+
+  it('載入買賣物件並附上特徵', () => {
+    const pool = loadPool('sale')
+    expect(pool).toHaveLength(180)
+    expect(pool.every((l) => l.mode === 'sale')).toBe(true)
+    const first = pool[0]
+    expect(first.features).toBeDefined()
+    expect(typeof first.features.summerTemp).toBe('number')
+    expect(typeof first.features.pricePercentile).toBe('number')
+    // listing_features 的主鍵欄位不應洩漏進 features
+    expect(first.features).not.toHaveProperty('listingId')
+  })
+
+  it('載入租賃物件', () => {
+    expect(loadPool('rent')).toHaveLength(180)
+  })
+
+  it('依城市篩選', () => {
+    const pool = loadPool('sale', ['臺北市'])
+    expect(pool.length).toBeGreaterThan(0)
+    expect(pool.every((l) => l.city === '臺北市')).toBe(true)
+  })
+
+  it('城市不存在時回空陣列而非拋錯', () => {
+    expect(loadPool('sale', ['不存在市'])).toEqual([])
+  })
+})
+```
+
+Run: `pnpm test lib/db/client.test.ts`
+Expected: PASS（5 個測試）
+
+- [ ] **Step 15: Commit**
 
 ```bash
 git add -A
