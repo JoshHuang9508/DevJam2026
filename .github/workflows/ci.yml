@@ -36,10 +36,11 @@ jobs:
 
       - run: pnpm exec tsc --noEmit
 
-      - run: pnpm test
-
-      # build 前要有種子資料庫（data/*.db 有 gitignore）
+      # 必須在 pnpm test 之前：lib/db/client.test.ts 會真的開 data/app.db，
+      # 而 data/*.db 有 gitignore，checkout 出來是空的。
       - run: pnpm db:push && pnpm db:seed
+
+      - run: pnpm test
 
       - run: pnpm build
 
@@ -62,7 +63,11 @@ jobs:
           cache: pnpm
           cache-dependency-path: backend/pnpm-lock.yaml
 
-      - run: pnpm install --frozen-lockfile --ignore-scripts
+      # --ignore-workspace 是必要的：pnpm 會往上找到根目錄的 pnpm-workspace.yaml，
+      # 而 backend 不在它的 packages 清單裡，於是依賴不會被連進 backend/node_modules。
+      # install 仍然「成功」，直到 tsc 才以 TS2307 爆出來（@earendil-works/* 找不到）。
+      # 本機看不出來 —— backend/node_modules 是在根目錄 workspace 檔存在之前就裝好的。
+      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-workspace
 
       - run: pnpm typecheck
 
