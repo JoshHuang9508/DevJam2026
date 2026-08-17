@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { fetchCached, haversineMeters, log, pointInRing, stripFloorSuffix, twd97ToWgs84 } from '../util'
 
@@ -266,6 +266,9 @@ export async function fetchFloodPoints(cacheDir: string): Promise<Point[]> {
 
 interface GeocodeCache { [address: string]: { lat: number; lng: number } | null }
 
+/** 每查幾筆就把快取落地一次。 */
+const SAVE_EVERY = 200
+
 /**
  * 實價登錄完全沒有座標，只有門牌 —— 這是整條 pipeline 唯一需要付費 API 的地方。
  *
@@ -280,6 +283,7 @@ export class Geocoder {
   private misses = 0
   private failures = 0
   private budgetSpent = 0
+  private unsaved = 0
 
   constructor(
     private readonly cachePath: string,
@@ -317,6 +321,11 @@ export class Geocoder {
     this.cache[key] = point
     if (point) this.misses += 1
     else this.failures += 1
+
+    // 每 200 筆就落地一次。geocoding 是**付費**的，把上萬筆結果全放在記憶體裡
+    // 等跑完才寫，中途一掛掉就是錢花了、一筆都沒留下，重跑要再付一次。
+    this.unsaved += 1
+    if (this.unsaved >= SAVE_EVERY) this.save()
     return point
   }
 
@@ -348,6 +357,11 @@ export class Geocoder {
 
   save(): void {
     mkdirSync(dirname(this.cachePath), { recursive: true })
-    writeFileSync(this.cachePath, JSON.stringify(this.cache))
+    // 先寫暫存檔再 rename：直接覆寫的話，寫到一半被中斷會留下一個壞掉的 JSON，
+    // 下一次啟動 JSON.parse 就會爆掉，等於整份快取報銷。
+    const tmp = `${this.cachePath}.tmp`
+    writeFileSync(tmp, JSON.stringify(this.cache))
+    renameSync(tmp, this.cachePath)
+    this.unsaved = 0
   }
 }
