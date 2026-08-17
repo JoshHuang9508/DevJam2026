@@ -11,6 +11,16 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
+
+# NEXT_PUBLIC_* 是 next build 時就編進瀏覽器 bundle 的，不是執行期讀的。
+# 放在 compose 的 environment 沒有用 —— 前端會拿到空字串。必須走 build arg。
+# 也因此這裡只能放本來就會公開的值（金鑰會出現在 bundle 與 docker history 裡），
+# GEMINI_API_KEY 那種絕對不能用這條路。
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=""
+ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=""
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=$NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
+
 # data/app.db 有 gitignore，映像檔必須自己產生種子資料
 RUN pnpm db:push && pnpm db:seed
 RUN pnpm build

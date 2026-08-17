@@ -42,6 +42,11 @@ services:
   web:
     build:
       context: ./frontend
+      # NEXT_PUBLIC_* 必須在 build 期就給，改值要 `up -d --build web` 才會生效，
+      # 只 `up -d` 沒有用（見 frontend/Dockerfile 的說明）。
+      args:
+        NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: ${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY:-}
+        NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: ${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID:-}
     restart: unless-stopped
     depends_on:
       backend:
