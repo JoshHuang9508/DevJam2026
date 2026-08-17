@@ -356,12 +356,19 @@ const started = messages.length > 0
   return (
     <main className="relative flex h-screen overflow-hidden bg-neutral-50">
       {/* 入口：未開始時置中；開始後淡出並上移，不卸載
-          inert 是必要的，不是加分項：opacity-0 不會把元素移出無障礙樹，
-          Playwright 判斷可見也只看 bounding box 與 visibility/display、不看 opacity。
-          少了它，入口與左欄的 ModeToggle 會同時存在兩個「買房」按鈕，
-          Task 6 的 getByRole('button', { name: '買房' }) 會無條件 ambiguous 而失敗。 */}
+          inert 與 aria-hidden **兩個都要**，實測過：
+            只有 inert            → Playwright 仍看到 2 個「買房」
+            inert + aria-hidden   → 1 個
+          規格上 inert 應蘊含 aria-hidden，但 Playwright 的 role 引擎沒有實作那個推論。
+          opacity-0 更不行——它不會把元素移出無障礙樹，Playwright 判斷可見也只看
+          bounding box 與 visibility/display、不看 opacity。
+          少了 aria-hidden，Task 6 的 getByRole('button', { name: '買房' })
+          會 strict mode violation 而失敗（同樣實測過，會拋錯不是理論）。
+          單獨用 aria-hidden 蓋住可聚焦內容是無障礙違規，但有 inert 在就不可聚焦，
+          兩者合用才是正確組合。 */}
       <div
         inert={started}
+        aria-hidden={started}
         className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         }`}
@@ -382,6 +389,7 @@ const started = messages.length > 0
           inert={!started} 的理由同入口那層。 */}
       <aside
         inert={!started}
+        aria-hidden={!started}
         className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white"
       >
         {/* 標題列（安家 / ModeToggle / 狀態燈）與訊息串沿用現有內容，
