@@ -3,6 +3,7 @@ import { Type } from "@earendil-works/pi-ai";
 import { preferencePatchSchema, type PreferencePatch } from "../../domain/preferences/schema.js";
 import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
 import { ListingsUnavailableError, type ListingsProvider } from "../../providers/listings/index.js";
+import { TwinkleUnavailableError, type TwinkleClient } from "../../providers/twinkle/index.js";
 import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
 import type { PreferenceService } from "../../services/preference.service.js";
 import type { SessionService } from "../../services/session.service.js";
@@ -16,6 +17,7 @@ interface ToolDependencies {
   preferences: PreferenceService;
   urbanPlan: UrbanPlanProvider;
   listings: ListingsProvider;
+  twinkle: TwinkleClient | null;
   publish: (event: AgentEvent) => void;
 }
 
@@ -164,6 +166,90 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
         }
       },
     },
+    ...(deps.twinkle ? twinkleTools(deps.twinkle, textResult) : []),
+  ];
+}
+
+/**
+ * Twinkle Hub 提供的台灣公開資料工具。只挑跟「找房子」真的有關的幾個 ——
+ * 它總共有 68 個 tool（專利、國考、藥品、教檢…），全部丟給模型只會稀釋
+ * 注意力並吃掉 context，而且每次呼叫都要消耗額度。
+ *
+ * 沒有金鑰時整組不註冊，模型看不到就不會嘗試呼叫。
+ */
+function twinkleTools(
+  twinkle: TwinkleClient,
+  textResult: (data: unknown) => { content: Array<{ type: "text"; text: string }>; details: unknown },
+): AgentTool<any>[] {
+  const proxy = (
+    name: string,
+    label: string,
+    description: string,
+    parameters: ReturnType<typeof Type.Object>,
+    remote: string,
+    mapArgs: (params: Record<string, unknown>) => Record<string, unknown> = (p) => p,
+  ): AgentTool<any> => ({
+    name, label, description, parameters,
+    execute: async (_id, params, signal) => {
+      try {
+        return textResult({ source: "Twinkle Hub（台灣政府開放資料）", result: await twinkle.call(remote, mapArgs(params as Record<string, unknown>), signal) });
+      } catch (error) {
+        // 外部服務失敗不該打斷整輪對話 —— 回一句話讓 agent 說「這項查不到」就好
+        if (error instanceof TwinkleUnavailableError) {
+          return textResult({ error: error.message, hint: "這項外部資料暫時取不到，請照實告訴使用者，不要自己編造。" });
+        }
+        throw error;
+      }
+    },
+  });
+
+  return [
+    proxy(
+      "tw_search_datasets", "搜尋台灣政府開放資料",
+      "以關鍵字搜尋台灣政府開放資料平台的 5.3 萬個資料集，找出可以回答問題的 dataset_id。" +
+      "使用者問到本系統沒有預先準備的在地資訊時用它 —— 例如學區、人口、治安、嫌惡設施、公共設施。" +
+      "找到 dataset_id 後再用 tw_query_rows 取實際資料。",
+      Type.Object({
+        query: Type.String({ description: "關鍵字，例如「國小 位置」「刑案發生數」「人口密度」" }),
+        limit: Type.Optional(Type.Number({ description: "回傳幾筆，預設 10" })),
+      }),
+      "tw_search_datasets",
+    ),
+    proxy(
+      "tw_query_dataset_rows", "查詢資料集內容",
+      "對某個資料集下 SQL 風格的條件取實際資料列。dataset_id 來自 tw_search_datasets。" +
+      "欄位名含中文時要用雙引號包起來，例如 where: \"\"縣市\" = '臺北市'\"。",
+      Type.Object({
+        dataset_id: Type.String({ description: "從 tw_search_datasets 取得" }),
+        where: Type.Optional(Type.String({ description: "SQL WHERE 條件（不含 WHERE 關鍵字）" })),
+        columns: Type.Optional(Type.String({ description: "要取的欄位，逗號分隔" })),
+        limit: Type.Optional(Type.Number({ description: "回傳幾列，預設 20" })),
+      }),
+      "tw_query_rows",
+    ),
+    proxy(
+      "tw_disaster_alerts", "查詢即時災害告警",
+      "查某個縣市當下的災害告警：淹水、豪雨、河川水位、土石流、地震、颱風、空品。" +
+      "使用者問到「這裡會不會淹水」「最近有沒有災害」時用它。" +
+      "注意這是**當下的即時告警**，不是歷史淹水紀錄，也不能當成該地段長期風險的證據 —— 回答時要講清楚這個區別。",
+      Type.Object({
+        countyId: Type.Optional(Type.String({ description: "5 碼縣市代碼，臺北市 63000、新北市 65000、臺中市 66000、高雄市 64000、臺南市 67000。省略則回全國。" })),
+        limit: Type.Optional(Type.Number({ description: "回傳幾筆，預設 10" })),
+      }),
+      "tw_rt_ncdr_active_alerts",
+      (p) => ({ ...(p.countyId ? { CountyId: p.countyId } : {}), limit: p.limit ?? 10 }),
+    ),
+    proxy(
+      "tw_statute_search", "檢索台灣法規條文",
+      "以關鍵字檢索中華民國法規全文。使用者問到租賃、買賣、稅、公設比、實價登錄相關的法律問題時用它。" +
+      "回答時要引用實際條文，並提醒你不是律師、僅供參考。",
+      Type.Object({
+        query: Type.String({ description: "關鍵字，例如「租賃住宅 押金」「房屋稅 自住」" }),
+        law_name: Type.Optional(Type.String({ description: "限定法規名稱，例如「土地法」" })),
+        limit: Type.Optional(Type.Number({ description: "回傳幾筆，預設 5" })),
+      }),
+      "tw_statute_search_text",
+    ),
   ];
 }
 

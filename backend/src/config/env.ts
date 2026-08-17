@@ -32,6 +32,11 @@ const envSchema = z.object({
   // 才不會出現「畫面一份排名、agent 嘴上另一份排名」。
   FRONTEND_URL: z.string().url().default("http://127.0.0.1:3000"),
   LISTINGS_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Twinkle Hub MCP（台灣政府開放資料聚合）。沒有金鑰就不註冊那些 tool，
+  // agent 不會看到它們，也就不會嘗試呼叫。
+  TWINKLE_API_KEY: z.string().optional(),
+  TWINKLE_MCP_URL: z.string().url().default("https://api.twinkleai.tw/mcp/"),
+  TWINKLE_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   CORS_ORIGINS: z.string().default("http://localhost:3000,http://localhost:5173"),
   REQUEST_BODY_LIMIT: z.coerce.number().int().positive().default(1_048_576),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),

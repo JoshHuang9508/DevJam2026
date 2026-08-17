@@ -32,6 +32,9 @@ services:
       # 這是 web -> backend -> web 的回呼，不是啟動相依：backend 先起來也沒關係，
       # 這條路只有在 agent 真的呼叫 rank_listings 時才會用到。
       FRONTEND_URL: http://web:3000
+      # Twinkle Hub MCP（台灣政府開放資料聚合）。沒設就整組 tool 不註冊，
+      # agent 看不到也就不會嘗試呼叫。
+      TWINKLE_API_KEY: ${TWINKLE_API_KEY:-}
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
       REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1048576}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
