@@ -14,11 +14,14 @@ concurrency:
 env:
   # 這些不是機密，寫在這裡比塞進 secret 好維護。
   # 唯一的 secret 是 DEPLOY_SSH_KEY。
-  DEPLOY_HOST: 35.236.161.192
+  # GCP 的臨時外部 IP。VM 一停一開就會換一組，換了這裡跟 KNOWN_HOSTS 都要改，
+  # 否則部署會卡在 `ssh: connect to host ... port 22: Connection timed out`。
+  # 要一勞永逸就去 GCP 保留一個靜態 IP。
+  DEPLOY_HOST: 34.80.16.153
   DEPLOY_USER: devstar1219
   APP_DIR: /opt/anjia
-  # 固定主機指紋，避免中間人。換機器要一起換。
-  KNOWN_HOSTS: 35.236.161.192 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK8BoIu1IHyMgGik7N3xOzPDiPy/V3BkaRjHFEJIylyN
+  # 固定主機指紋，避免中間人。指紋跟著機器走，換 IP 不會變。
+  KNOWN_HOSTS: 34.80.16.153 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK8BoIu1IHyMgGik7N3xOzPDiPy/V3BkaRjHFEJIylyN
 
 jobs:
   check:
