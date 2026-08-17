@@ -120,19 +120,40 @@ async function overpass(query: string, cachePath: string): Promise<OverpassEleme
   if (existsSync(cachePath) && Date.now() - statSync(cachePath).mtimeMs < 30 * 86400_000) {
     raw = readFileSync(cachePath, 'utf-8')
   } else {
-    const response = await fetch(OVERPASS_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-        'user-agent': 'anjia-housing-agent/0.1 (data pipeline; github.com/JoshHuang9508/DevJam2026)',
-      },
-      body: `data=${encodeURIComponent(query)}`,
-      signal: AbortSignal.timeout(900_000),
+    // Overpass 對大查詢常回 504/429，尤其線形那支。它是免費服務且只有 2 個並行 slot，
+    // 失敗多半是暫時性壅塞 —— 退避重試比直接放棄實際得多。
+    raw = await withRetry(async () => {
+      const response = await fetch(OVERPASS_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'user-agent': 'anjia-housing-agent/0.1 (data pipeline; github.com/JoshHuang9508/DevJam2026)',
+        },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: AbortSignal.timeout(900_000),
+      })
+      if (!response.ok) throw new Error(`Overpass ${response.status} ${response.statusText}`)
+      return response.text()
     })
-    if (!response.ok) throw new Error(`Overpass ${response.status} ${response.statusText}`)
-    raw = await response.text()
     mkdirSync(dirname(cachePath), { recursive: true })
     writeFileSync(cachePath, raw)
   }
   return (JSON.parse(raw) as { elements?: OverpassElement[] }).elements ?? []
+}
+
+/** 最多試三次，間隔 30 / 60 秒。Overpass 官方建議 429 後至少等 30 秒再試。 */
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn()
+    } catch (error) {
+      lastError = error
+      if (i === attempts - 1) break
+      const waitMs = 30_000 * (i + 1)
+      log('transport', `Overpass 失敗，${waitMs / 1000} 秒後重試：${error instanceof Error ? error.message : String(error)}`)
+      await new Promise((resolve) => setTimeout(resolve, waitMs))
+    }
+  }
+  throw lastError
 }
