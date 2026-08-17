@@ -27,12 +27,15 @@ echo "==> $(date -Is) 開始更新資料"
 # drizzle-kit 在 tools 映像檔裡（prune 之前的那一層）。
 if [ ! -f "${APP_DIR}/data/app.db" ]; then
   echo "==> data/app.db 不存在，先建 schema"
-  $COMPOSE run --rm --no-deps data-refresh pnpm db:push
+  $COMPOSE run --rm --build --no-deps data-refresh pnpm db:push
 fi
 
 echo "==> 跑 pipeline"
+# --build 是必要的：data-refresh 有 profiles: ["tools"]，部署時的
+# `up -d --build` 會整個跳過它，所以它的映像檔不會跟著程式碼更新。
+# 少了這個旗標，pipeline 會拿舊版程式跑出舊結果，而且看起來完全成功。
 # --no-deps：這是批次工作，不需要（也不該）把 backend 拉起來
-$COMPOSE run --rm --no-deps data-refresh pnpm fetch:data "$@"
+$COMPOSE run --rm --build --no-deps data-refresh pnpm fetch:data "$@"
 
 # better-sqlite3 的連線在 Next 行程裡是快取的。pipeline 是就地改同一個 inode，
 # 理論上讀得到新資料，但重啟只要幾秒而且能保證不會讀到舊的 page cache。
