@@ -24,7 +24,8 @@
 - TypeScript `strict: true`，不得使用 `any` 規避型別錯誤
 - `GEMINI_API_KEY` 只能在 Route Handler（server 端）讀取；任何 `'use client'` 檔案不得引用
 - Gemini model ID 由 `GEMINI_MODEL` 指定，預設 `gemini-3.7-flash`。**禁止**使用 `gemini-2.5-flash`（2026-10-16 停用）
-- 六個權重維度的鍵固定為：`price` `weather` `location` `amenities` `space` `quality`
+- 七個權重維度的鍵固定為：`price` `value` `weather` `location` `amenities` `space` `quality`
+  （`price` = 跨區絕對價格水準，`value` = 同區性價比。Task 4B 前只有六個，缺 `value`）
 - 種子資料必須是**確定性**的（固定 seed 的 LCG，不得用 `Math.random()`），否則測試無法重現
 - 所有面向使用者的文字為繁體中文
 - 每個 task 結束時 `pnpm test` 必須全綠才可 commit
@@ -2503,6 +2504,212 @@ git commit -m "feat(api): profile 合併與驗證，加上 /api/rank 排序端�
 
 ---
 
+### Task 4B: 把價格拆成 price（跨區可負擔）與 value（同區性價比）
+
+**為什麼**：`pricePercentile` 是在「同 mode + 同城市 + 同行政區 + 同建物型態」內算的，所以每個行政區的百分位
+都必然跑滿 0 到 1。實測種子資料：大安區單價 100.4 萬/坪的物件與土城區 30.9 萬/坪的物件，`1 - pricePercentile`
+都是滿分 1.0 —— 單價差 3.2 倍、價格分數相同。原本的 `price` 維度**對跨區可負擔性完全失明**，而「我該住哪一區」
+正是本產品的核心問題。拆成兩個獨立維度後，使用者可以分別表達「我要便宜的區」與「我要划算的物件」。
+
+**Files:**
+- Modify: `lib/types/profile.ts`（`WeightKey`、`WEIGHT_KEYS`、`WEIGHT_LABELS`、`DEFAULT_PROFILE`）
+- Modify: `lib/scoring/dimensions.ts`（改寫 `price`、新增 `value`、`DIMENSIONS`）
+- Modify: `lib/scoring/dimensions.test.ts`
+- Modify: `lib/scoring/index.test.ts`（fixture 需要不同的 `unitPrice`；等權值 1/6 → 1/7）
+- Modify: `lib/profile/schema.ts`（兩份 weights schema 各加一鍵）
+
+**Interfaces:**
+- Consumes: Task 1–4 的既有匯出
+- Produces: `WeightKey` 增為七鍵，順序固定 `price` `value` `weather` `location` `amenities` `space` `quality`
+
+- [ ] **Step 1: 擴充型別**
+
+`lib/types/profile.ts` — `WeightKey` 加入 `'value'`，三個常數同步：
+
+```ts
+export type WeightKey =
+  | 'price'
+  | 'value'
+  | 'weather'
+  | 'location'
+  | 'amenities'
+  | 'space'
+  | 'quality'
+
+export const WEIGHT_KEYS: readonly WeightKey[] = [
+  'price', 'value', 'weather', 'location', 'amenities', 'space', 'quality',
+] as const
+
+export const WEIGHT_LABELS: Record<WeightKey, string> = {
+  price: '房價可負擔',
+  value: '同區性價比',
+  weather: '天氣環境',
+  location: '地理位置',
+  amenities: '生活機能',
+  space: '坪數格局',
+  quality: '屋況條件',
+}
+```
+
+`DEFAULT_PROFILE.weights` 加上 `value: 50`（七項皆 50）。
+
+- [ ] **Step 2: 先寫失敗測試**
+
+`lib/scoring/dimensions.test.ts` — 把原本的 `describe('DIMENSIONS.price')` 整段換成下面兩段。
+第二段的兩個測試是這次拆分的核心證據：同一組數字，`price` 必須分得出高下，`value` 必須分不出。
+
+```ts
+describe('DIMENSIONS.price', () => {
+  it('單價越低分數越高', () => {
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), profile())
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), profile())
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('跨行政區可比：貴區裡最便宜的仍輸給便宜區裡最便宜的', () => {
+    const daanCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tuchengCheapest = DIMENSIONS.price(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(tuchengCheapest).toBeGreaterThan(daanCheapest)
+  })
+
+  it('不受同區百分位影響', () => {
+    const a = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 0 } })), profile())
+    const b = DIMENSIONS.price(fill(makeListing({ unitPrice: 50, features: { pricePercentile: 1 } })), profile())
+    expect(a).toBe(b)
+  })
+
+  it('有 budgetMax 也不改變公式（單調性不變量）', () => {
+    const p = profile({ hard: { budgetMax: 3000 } })
+    const cheap = DIMENSIONS.price(fill(makeListing({ unitPrice: 31 })), p)
+    const pricey = DIMENSIONS.price(fill(makeListing({ unitPrice: 100 })), p)
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+})
+
+describe('DIMENSIONS.value', () => {
+  it('同區百分位越低分數越高', () => {
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), profile())
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), profile())
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+
+  it('與絕對單價無關：兩區各自墊底的物件得分相同', () => {
+    const daan = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 100.4, features: { pricePercentile: 0 } })), profile())
+    const tucheng = DIMENSIONS.value(
+      fill(makeListing({ unitPrice: 30.9, features: { pricePercentile: 0 } })), profile())
+    expect(daan).toBe(tucheng)
+  })
+
+  it('有 budgetMax 也不改變公式（單調性不變量）', () => {
+    const p = profile({ hard: { budgetMax: 3000 } })
+    const cheap = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.1 } })), p)
+    const pricey = DIMENSIONS.value(fill(makeListing({ features: { pricePercentile: 0.9 } })), p)
+    expect(cheap).toBeGreaterThan(pricey)
+  })
+})
+```
+
+同檔案最後的完整性測試，鍵陣列補上 `'value'`：
+```ts
+    for (const key of ['price', 'value', 'weather', 'location', 'amenities', 'space', 'quality'] as const) {
+```
+
+- [ ] **Step 3: 執行測試確認失敗**
+
+Run: `pnpm test lib/scoring/dimensions.test.ts`
+Expected: FAIL — `DIMENSIONS.value is not a function`，以及 price 的跨區測試因為舊公式讀 `pricePercentile` 而失敗
+
+- [ ] **Step 4: 改寫維度**
+
+`lib/scoring/dimensions.ts` — 把原本的 `price` 換成下面兩個函式：
+
+```ts
+/**
+ * 房價可負擔：跨行政區的絕對單價水準。
+ * 回傳 -unitPrice，下游在候選池內 min-max 正規化後即「單價越低越高分」。
+ * 刻意用單價而非總價 —— 總價混入了坪數大小，單價才隔離出「這個地段多貴」；
+ * 總價上限由 hard.budgetMax 這個硬條件處理，不需要在分數裡重複表達。
+ */
+const price: DimensionFn = (f) => -f.listing.unitPrice
+
+/**
+ * 同區性價比：同區同型態內相對便宜的程度。
+ * 恆為 1 - pricePercentile，不因 budgetMax 改變曲線 ——
+ * 「貼近預算上限為佳」會破壞「拉高權重 → 便宜物件排名上升」的單調性不變量。
+ * 這個維度**刻意**對跨區的絕對價差失明，那是 price 的職責。
+ */
+const value: DimensionFn = (f) => 1 - clamp01(f.features.pricePercentile)
+```
+
+`DIMENSIONS` 常數加入 `value`：
+```ts
+export const DIMENSIONS: Record<WeightKey, DimensionFn> = {
+  price, value, weather, location, amenities, space, quality,
+}
+```
+
+- [ ] **Step 5: 執行測試確認通過**
+
+Run: `pnpm test lib/scoring/dimensions.test.ts`
+Expected: PASS
+
+- [ ] **Step 6: 修正排序測試的 fixture**
+
+`lib/scoring/index.test.ts` 的兩筆 fixture 目前沒設 `unitPrice`，都會拿到工廠預設值 80，
+使 `price` 維度分不出高下、單調性測試失效。各補一個 `unitPrice`：
+
+- `cheapPoorAmenities` 加 `unitPrice: 31`
+- `pricyRichAmenities` 加 `unitPrice: 100`
+
+`normalizeWeights` 的全零測試，物件字面值補 `value: 0`，且期望值由 `1 / 6` 改為 `1 / 7`：
+```ts
+  it('全為 0 時退回等權', () => {
+    const w = normalizeWeights({ price: 0, value: 0, weather: 0, location: 0, amenities: 0, space: 0, quality: 0 })
+    for (const k of WEIGHT_KEYS) expect(w[k]).toBeCloseTo(1 / 7, 10)
+  })
+```
+
+其餘測試用 `{ ...DEFAULT_PROFILE.weights, ... }` 展開，會自動跟著擴充，不需改動。
+
+- [ ] **Step 7: 補上 schema 的第七鍵**
+
+`lib/profile/schema.ts` 有兩份各自列出權重鍵的 schema（Task 4 審查已標記這個重複）。
+**兩份都要加 `value`** —— 只改一份會讓絕對 profile 與增量 delta 的行為不一致。
+
+- [ ] **Step 8: 全套驗證**
+
+```bash
+pnpm test
+pnpm exec tsc --noEmit
+```
+Expected: 全綠。任何測試若因為權重鍵數量而失敗，是該測試需要補鍵，不是把 `value` 拿掉。
+
+- [ ] **Step 9: 用真實資料確認缺陷已修復**
+
+```bash
+node -e "
+const D=require('better-sqlite3');const db=new D('./data/app.db',{readonly:true});
+const rows=db.prepare(\"SELECT l.district,l.unit_price u,f.price_percentile p FROM listings l JOIN listing_features f ON l.id=f.listing_id WHERE l.mode='sale' AND f.price_percentile=0\").all();
+const daan=rows.find(r=>r.district==='大安區'), tu=rows.find(r=>r.district==='土城區');
+console.log('大安墊底單價',daan.u,'土城墊底單價',tu.u);
+console.log('舊 price(=1-pct) 兩者相同:', (1-daan.p)===(1-tu.p));
+console.log('新 price(=-unitPrice) 土城較高:', (-tu.u) > (-daan.u));
+db.close();"
+```
+Expected: 最後兩行分別為 `true` 與 `true`
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "feat(scoring): 拆分 price（跨區可負擔）與 value（同區性價比）"
+```
+
+---
+
 ### Task 5: 結果視圖 — 地圖與物件卡片
 
 **Files:**
@@ -3062,14 +3269,14 @@ pnpm dev
 在瀏覽器開 `http://localhost:3000`，確認：
 - 地圖載入且顯示台北一帶
 - 地圖上有彩色點位與 cluster
-- 下方卡片列有物件，含六維條狀圖
+- 下方卡片列有物件，含七維條狀圖
 - 滑鼠移到卡片上，對應的地圖點位放大
 
 - [ ] **Step 12: Commit**
 
 ```bash
 git add -A
-git commit -m "feat(ui): MapLibre 地圖、物件卡片與六維 breakdown 條狀圖"
+git commit -m "feat(ui): MapLibre 地圖、物件卡片與七維 breakdown 條狀圖"
 ```
 
 ---
@@ -3344,7 +3551,7 @@ pnpm dev
 確認：
 - 拖動「房屋價位」到 100、其餘拉低 → 卡片重排為單價較低的物件，約 200ms 內完成
 - 切到「租房」→ 結果換成租賃物件，價格顯示為「元/月」
-- 按「重設」→ 六條回到 50
+- 按「重設」→ 七條回到 50
 
 - [ ] **Step 9: Commit**
 
@@ -3403,8 +3610,9 @@ export const EXTRACT_SYSTEM_PROMPT = `你是台灣房屋選址助理的「條件
 3. 沒講的絕不編造。使用者沒提到的偏好一律不填。
 4. 單位要正確。買賣的 budgetMax 單位是「萬元總價」（1500 萬 → 1500）；租賃的 budgetMax 單位是「元／月」（2 萬 → 20000）。坪數單位是坪，距離單位是公尺。
 
-六個權重維度的意義：
-- price 房屋價位（相對同區同型態越便宜越高分）
+七個權重維度的意義：
+- price 房價可負擔（跨行政區的絕對單價水準，越低越高分）
+- value 同區性價比（同區同型態內相對越便宜越高分）
 - weather 天氣環境（溫度、降雨、濕度、空氣品質）
 - location 地理位置（離軌道運輸的距離、到通勤錨點的時間）
 - amenities 生活機能（超商、超市、公園、醫院、學校、餐飲的密度）
@@ -4741,7 +4949,7 @@ test('拖動權重會改變結果順序', async ({ page }) => {
   await priceSlider.press('End')
 
   // 其餘維度拉到最低，放大排序差異
-  for (const label of ['天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
+  for (const label of ['同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
     const s = page.getByRole('slider', { name: label })
     await s.focus()
     await s.press('Home')
@@ -4753,7 +4961,7 @@ test('拖動權重會改變結果順序', async ({ page }) => {
   }).toPass()
 })
 
-test('權重面板的重設會把六個維度回到 50', async ({ page }) => {
+test('權重面板的重設會把七個維度回到 50', async ({ page }) => {
   await page.goto('/')
   await page.getByTestId('composer-input').fill('台北的房子')
   await page.getByTestId('composer-submit').click()

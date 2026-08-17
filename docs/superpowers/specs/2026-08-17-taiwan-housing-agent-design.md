@@ -134,7 +134,7 @@ lib/
     explain.ts              呼叫 #2 + 串流
   scoring/
     index.ts                score(profile, listings) → ScoredListing[]
-    dimensions.ts           六個維度的子分數函式
+    dimensions.ts           七個維度的子分數函式
     normalize.ts            候選池內 min-max 正規化
     relax.ts                0 筆時的條件放寬策略
   db/
@@ -250,7 +250,8 @@ distToRail        REAL
 type Mode = 'sale' | 'rent'
 
 type WeightKey =
-  | 'price'      // 房屋價位
+  | 'price'      // 房價可負擔：跨行政區的絕對價格水準
+  | 'value'      // 同區性價比：同區同型態內相對划算與否
   | 'weather'    // 天氣環境
   | 'location'   // 地理位置 / 交通
   | 'amenities'  // 生活機能
@@ -317,11 +318,22 @@ function score(profile: SearchProfile, pool: ListingWithFeatures[]): ScoredListi
 5. **多樣性 cap** — 同一行政區最多保留 5 筆
 6. **取 top 30**，附上 `breakdown`
 
-### 5.2 六個維度的子分數
+### 5.2 七個維度的子分數
 
 | 維度 | 計算方式 |
 | --- | --- |
-| `price` | `1 - pricePercentile`（同區同型態內越相對便宜越高分）。**恆為此式**，不因 `budgetMax` 改變曲線 — 「貼近預算上限為佳」的設計會與 §9 的單調性不變量衝突。「避免推出便宜的爛物件」由 `quality` 與 `space` 維度負責，超出預算則已由 hard filter 排除 |
+| `price` | 絕對價格水準：`-unitPrice`（候選池內 min-max 正規化後即「單價越低越高分」）。這是唯一能跨行政區比較可負擔性的維度 |
+| `value` | 同區性價比：`1 - pricePercentile`（同區同型態內越相對便宜越高分）。**恆為此式**，不因 `budgetMax` 改變曲線 — 「貼近預算上限為佳」的設計會與 §9 的單調性不變量衝突 |
+
+**為什麼價格要拆成兩個維度**：`pricePercentile` 是在「同 mode + 同城市 + 同行政區 + 同建物型態」內計算的，
+每個行政區的百分位都必然跑滿 0 到 1。實測種子資料：大安區單價 100.4 萬/坪的物件與土城區 30.9 萬/坪的物件，
+`1 - pricePercentile` 都是滿分 1.0。單靠這個式子，價格維度**對跨區的可負擔性完全失明** —— 使用者把價格權重
+拉到最高，得到的會是「以大安區標準算便宜」的昂貴物件，而本產品的核心問題正是「我該住哪一區」。
+`price` 負責跨區絕對水準，`value` 負責同區划算程度，兩者獨立可調。
+「避免推出便宜的爛物件」仍由 `quality` 與 `space` 負責，超出預算則由 hard filter 排除。
+
+`price` 用單價而非總價：總價混入了坪數大小，單價才隔離出「這個地段多貴」。
+使用者的總價上限由 `hard.budgetMax` 處理，不需要重複表達。
 | `weather` | `summerTemp`、`winterTemp`、`rainDays`、`humidity`、`aqiMean` 的加權舒適度；`soft.prefersCool` 提高夏季溫度項權重，`soft.prefersLowRain` 提高降雨日數項權重 |
 | `location` | `1 / (1 + distToMetro / 800)` 為基底；若有 `commuteAnchor`，改以到該錨點的估計通勤分鐘數為主項（同 4.2 的簡化模型，`maxMin` 作為軟性懲罰的轉折點，**不做硬性排除**）；無捷運城市改用 `distToTrain` 與 `distToBus` |
 | `amenities` | `log1p(POI 計數)` 的加權和。500m 權重高於 1km。各類別權重：超商、超市、公園、醫院、學校、餐飲 |
@@ -448,13 +460,13 @@ model ID 由環境變數 `GEMINI_MODEL` 指定，預設 `gemini-3.7-flash`（202
 
 標題、價格、坪數、格局、屋齡、樓層、行政區、外部連結，加上：
 
-- `breakdown` 六維條狀圖
+- `breakdown` 七維條狀圖
 - 天氣、機能、交通、價位四塊摘要數值
 - `dataGaps` 標註
 
 ### 7.4 權重面板
 
-- 六條 slider，0–100
+- 七條 slider，0–100
 - 拖動 → debounce 200ms → `POST /api/rank` → 地圖與卡片即時重排，**不呼叫 Gemini**
 - agent 調整權重時，對應項目閃爍並顯示變化：`交通 20 → 40`
 - 一鍵 reset 回等權
