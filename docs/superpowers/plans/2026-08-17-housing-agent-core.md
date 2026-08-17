@@ -2929,7 +2929,14 @@ export const DEFAULT_ZOOM = 11
 'use client'
 
 import { useEffect, useRef } from 'react'
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl'
+// maplibre-gl v6 移除了 default export，只能具名匯入，否則 Turbopack build 會失敗
+import {
+  Map as MapLibreMapCtor,
+  NavigationControl,
+  LngLatBounds,
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+} from 'maplibre-gl'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_CENTER, DEFAULT_ZOOM, OSM_RASTER_STYLE } from './mapStyle'
 
@@ -2942,11 +2949,14 @@ interface Props {
   onSelect: (id: string) => void
 }
 
+// setFeatureState 只認 GeoJSON Feature 頂層的 id（number | string），不是 properties 裡的欄位。
+// 這裡以 results 陣列的 index 作為數值型 feature id，hover 時再用同一個 index 對應回去。
 function toGeoJson(results: ScoredListing[]) {
   return {
     type: 'FeatureCollection' as const,
-    features: results.map((r) => ({
+    features: results.map((r, i) => ({
       type: 'Feature' as const,
+      id: i,
       geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
       properties: { id: r.id, score: r.score, title: r.title },
     })),
@@ -2961,14 +2971,14 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
-    const map = new maplibregl.Map({
+    const map = new MapLibreMapCtor({
       container: containerRef.current,
       style: OSM_RASTER_STYLE,
       center: DEFAULT_CENTER,
       zoom: DEFAULT_ZOOM,
     })
     mapRef.current = map
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new NavigationControl({ showCompass: false }), 'top-right')
 
     // 圖磚載入失敗時降級為灰底，點位仍照常顯示
     map.on('error', (e) => { console.warn('[MapView] 地圖錯誤', e.error) })
@@ -3054,7 +3064,7 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
       if (!source) return
       source.setData(toGeoJson(results))
       if (results.length === 0) return
-      const bounds = new maplibregl.LngLatBounds(
+      const bounds = new LngLatBounds(
         [results[0].lng, results[0].lat],
         [results[0].lng, results[0].lat],
       )
@@ -3070,19 +3080,17 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   useEffect(() => {
     const map = mapRef.current
     if (!map || !readyRef.current) return
-    for (const r of results) {
+    results.forEach((r, i) => {
       map.setFeatureState(
-        { source: SOURCE_ID, id: r.id },
+        { source: SOURCE_ID, id: i },
         { hovered: r.id === hoveredId },
       )
-    }
+    })
   }, [hoveredId, results])
 
   return <div ref={containerRef} className="h-full w-full bg-neutral-200" data-testid="map" />
 }
 ```
-
-> **注意**：`setFeatureState` 需要 feature 有數值型 `id`。若 hover 放大未生效，改為在 `toGeoJson` 為每個 feature 加上 `id: index`（number），並改用 index 對應。此為已知的 MapLibre 限制，實作時以實際行為為準。
 
 - [ ] **Step 8: 實作 breakdown 條狀圖**
 
@@ -4976,6 +4984,19 @@ test('權重面板的重設會把七個維度回到 50', async ({ page }) => {
   await expect(priceSlider).toHaveAttribute('aria-valuenow', '50')
 })
 
+test('卡片 hover 會標示為選中狀態', async ({ page }) => {
+  await page.goto('/')
+  await page.getByTestId('composer-input').fill('台北的房子')
+  await page.getByTestId('composer-submit').click()
+
+  const first = page.getByTestId('listing-card').first()
+  await expect(first).toBeVisible()
+  await expect(first).not.toHaveClass(/border-blue-500/)
+
+  await first.hover()
+  await expect(first).toHaveClass(/border-blue-500/)
+})
+
 test('手機版以分頁切換對話與結果', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
@@ -4997,6 +5018,11 @@ pnpm e2e
 Expected: 5 個測試全部 PASS
 
 若「拖動權重會改變結果順序」不穩定，先確認 `/api/rank` 的 debounce 是否生效；不得以放寬斷言的方式掩蓋問題。
+
+**hover 測試的已知限制**：`卡片 hover 會標示為選中狀態` 只驗證了「卡片 → 狀態 → 卡片」這條迴路。
+地圖那一側（marker 隨 `hoveredId` 放大）畫在 canvas 上，Playwright 無法直接斷言，
+只能靠讀程式碼確認 `toGeoJson` 寫入的 feature id 與 `setFeatureState` 讀的是同一個。
+這個限制是誠實記錄，不是待辦 —— 除非引入視覺回歸測試，否則無法自動化。
 
 - [ ] **Step 5: 加入整合測試指令**
 
