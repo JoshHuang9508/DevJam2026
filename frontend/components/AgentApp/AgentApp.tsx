@@ -287,7 +287,7 @@ export function AgentApp() {
           </div>
 
           {/* 浮層向上開（bottom-full），要放在輸入表單上方——放下方會被視窗底部裁掉 */}
-          <div className="shrink-0 border-t border-neutral-200 px-3 py-2">
+          <div className="shrink-0 border-neutral-200 px-3 py-2">
             <WeightPopover
               profile={s.profile}
               onChange={s.setProfile}
@@ -298,7 +298,7 @@ export function AgentApp() {
           </div>
 
           <form
-            className="flex items-end gap-2 border-t border-neutral-200 px-3 py-2"
+            className="flex items-end gap-2 border-neutral-200 px-3 py-2"
             onSubmit={(event) => { event.preventDefault(); void send(input) }}
           >
             <textarea
