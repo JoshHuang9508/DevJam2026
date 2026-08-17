@@ -307,6 +307,10 @@ export function AgentApp() {
               placeholder="例如：中南部，月租最高 18000，希望少雨"
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
+                // 中文／日文輸入法用 Enter 確認選字，那一下也會觸發 keydown。isComposing 為 true
+                // 代表這個 Enter 屬於輸入法，不是使用者要送出 —— 不擋就會把只打了一半的句子送出去。
+                // keyCode 229 是部分輸入法在組字中回報的「處理中」鍵碼，補一層舊瀏覽器的保險。
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
                   void send(input)

@@ -51,6 +51,11 @@ export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, 
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}
+          // 輸入法確認選字的 Enter 會觸發 form 的隱含送出，把組字中的半句話送出去；
+          // 組字中就把這一下擋掉（同 AgentApp 的 textarea）
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) e.preventDefault()
+          }}
           placeholder={PLACEHOLDERS[index]}
           aria-label="描述你想要的居住條件"
           data-testid="composer-input"
