@@ -2,16 +2,21 @@
 
 用自然語言描述想要的生活條件，透過多輪對話調整權重，在地圖上找到適合的房屋物件。
 
-Repo 分兩層：Next.js 前端在根目錄，推薦後端在 [`backend/`](backend/)（Fastify + deterministic
-ranking engine + Pi agent）。兩者的整合說明見 [`docs/backend-integration.md`](docs/backend-integration.md)。
+Repo 是兩個各自獨立的套件：Next.js 前端在 [`frontend/`](frontend/)，推薦後端在
+[`backend/`](backend/)（Fastify + deterministic ranking engine + Pi agent）。兩邊各有自己的
+`package.json`、lockfile 與 `node_modules`，沒有 monorepo workspace 串在一起，只透過 HTTP
+（`BACKEND_URL`）溝通。
 
 ## 快速開始
+
+兩個資料夾各開一個終端機。
 
 ```bash
 # 1. 推薦後端 → http://localhost:3001（Swagger UI 在 /docs）
 cd backend && pnpm install && pnpm dev
 
 # 2. 前端
+cd frontend
 pnpm install
 cp .env.example .env.local
 mkdir data                   # drizzle-kit 不會自己建目錄
@@ -33,6 +38,8 @@ pnpm dev
 
 ## 指令
 
+以下都在 `frontend/` 下執行。
+
 | 指令 | 說明 |
 | --- | --- |
 | `pnpm dev` | 開發伺服器 |
@@ -49,8 +56,6 @@ pnpm dev
 
 `/` 這條路徑再多一層：後端的 agent 先挑出適合的行政區（分數同樣由 deterministic ranking
 engine 產生，模型不編分數），前 6 個行政區才交給 `lib/scoring` 在區內排物件。
-
-設計文件：`docs/superpowers/specs/2026-08-17-taiwan-housing-agent-design.md`
 
 ## 目前的資料
 
@@ -74,8 +79,6 @@ engine 產生，模型不編分數），前 6 個行政區才交給 `lib/scoring
 規則引擎與 UI 都不用改。
 
 風水是文化偏好而非科學結論，系統不預測吉凶，解法建議一律以裝潢、採光與噪音的角度陳述。
-
-設計文件：[`docs/fengshui.md`](docs/fengshui.md)
 
 ## ⚠️ 尚未準備好上線部署
 
