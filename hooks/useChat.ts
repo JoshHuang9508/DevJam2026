@@ -26,6 +26,9 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
   const [streaming, setStreaming] = useState(false)
   const [highlighted, setHighlighted] = useState<WeightHighlights>({})
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 記下對話路徑套用的那個 profile 物件。SSE 的 results 事件已經連同排序結果一起回來了，
+  // 主畫面靠比對這個參考來跳過一次多餘的 /api/rank。
+  const appliedByChat = useRef<SearchProfile | null>(null)
 
   const send = useCallback(async (text: string) => {
     const trimmed = text.trim()
@@ -60,6 +63,7 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
         for (const e of events) {
           if (e.event === 'profile') {
             const next = e.data as SearchProfile
+            appliedByChat.current = next
             search.setProfile(next)
             const diff = diffWeights(before, next)
             if (Object.keys(diff).length > 0) {
@@ -91,5 +95,5 @@ export function useChat(search: ReturnType<typeof useSearchState>) {
     }
   }, [messages, search, streaming])
 
-  return { messages, streaming, send, highlighted }
+  return { messages, streaming, send, highlighted, appliedByChat }
 }
