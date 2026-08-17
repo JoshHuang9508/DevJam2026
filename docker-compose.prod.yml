@@ -28,6 +28,10 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY 必須在 .env.prod 設定}
       # 後端只被前端從 compose 內網呼叫，瀏覽器不會直接連它；
       # 這裡填公開 origin 只是為了萬一開了 /api/backend/* 代理時仍然正確。
+      # agent 的 rank_listings 透過這個位址借用前端的物件資料庫與計分器。
+      # 這是 web -> backend -> web 的回呼，不是啟動相依：backend 先起來也沒關係，
+      # 這條路只有在 agent 真的呼叫 rank_listings 時才會用到。
+      FRONTEND_URL: http://web:3000
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
       REQUEST_BODY_LIMIT: ${REQUEST_BODY_LIMIT:-1048576}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-60}
@@ -58,6 +62,10 @@ services:
       # /api/backend/* 是後端的無驗證全方法代理。正式環境維持關閉；
       # app 本身用不到它，只有想從瀏覽器直接看 Swagger 才需要。
       ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
+    volumes:
+      # 物件資料庫改由主機提供，資料 pipeline 才能在不重建映像檔的情況下更新它。
+      # 唯讀掛載 —— web 只讀不寫，而且 pipeline 刻意不開 WAL（唯讀掛載讀不了 -shm）。
+      - ./data:/app/data:ro
     ports:
       # 只綁 loopback：cloudflared 跑在同一台主機上，走 127.0.0.1 就好。
       # 綁 0.0.0.0 會讓 GCP 防火牆成為唯一一道防線。
@@ -68,3 +76,22 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # 資料抓取 pipeline。profiles 讓它不會被 `up -d` 帶起來 ——
+  # 這是一次性的批次工作，不是常駐服務。跑法：
+  #   docker compose -f docker-compose.prod.yml run --rm data-refresh
+  # 或用包好的 deploy/refresh-data.sh（給 cron 用）。
+  data-refresh:
+    profiles: ["tools"]
+    build:
+      context: ./frontend
+      target: tools
+    volumes:
+      # 這裡要可寫，跟 web 的唯讀掛載是同一份檔案
+      - ./data:/app/data
+    environment:
+      # 三把都是選用的。沒有就略過該來源，欄位留 null，
+      # 前端的 fillDataGaps 會補中位數並在 dataGaps 標示，不會假裝有資料。
+      GEOCODING_API_KEY: ${GEOCODING_API_KEY:-}
+      CWA_API_KEY: ${CWA_API_KEY:-}
+      MOENV_API_KEY: ${MOENV_API_KEY:-}

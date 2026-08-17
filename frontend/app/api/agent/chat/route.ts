@@ -1,6 +1,7 @@
 import { BackendError, createSession, openMessageStream, patchPreferences } from '@/lib/backend/client'
 import { districtsWithListings, listingsDbAvailable } from '@/lib/backend/listings'
 import { toPreferencePatch, toSearchProfile } from '@/lib/backend/profile-bridge'
+import { rememberProfile } from '@/lib/backend/profile-cache'
 import { readAgentEvents } from '@/lib/backend/sse-client'
 import type { Candidate, PreferenceState } from '@/lib/backend/types'
 import { loadPool } from '@/lib/db/client'
@@ -86,6 +87,9 @@ export async function POST(request: Request): Promise<Response> {
           }
         }
         send('session', { sessionId })
+        // agent 的 rank_listings 會回打 /api/rank/preferences，那裡需要這份 client profile
+        // 當 base，否則它排出來的前三名跟畫面上的卡片會不一致（見 profile-cache）。
+        rememberProfile(sessionId, clientProfile)
 
         if (!listingsDbAvailable()) {
           send('error', { message: '物件資料庫尚未建立，請先執行 pnpm db:push && pnpm db:seed。行政區排序仍可運作。' })

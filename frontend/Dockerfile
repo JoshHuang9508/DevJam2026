@@ -24,7 +24,14 @@ ENV NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=$NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
 # data/app.db 有 gitignore，映像檔必須自己產生種子資料
 RUN pnpm db:push && pnpm db:seed
 RUN pnpm build
-# 執行期用不到 typescript / tailwind / drizzle-kit / playwright，
+
+# 資料 pipeline 需要 tsx 與完整 devDeps，所以從 prune 之前的狀態分支出去。
+# cron 跑的是這個 target（見 docker-compose.prod.yml 的 data-refresh 服務）。
+FROM build AS tools
+CMD ["pnpm", "fetch:data"]
+
+FROM build AS pruned
+# 執行期用不到 typescript / tailwind / drizzle-kit / tsx，
 # 就地砍成 production 依賴，runtime stage 直接拿這一份。
 RUN pnpm prune --prod
 
@@ -39,7 +46,7 @@ ENV BACKEND_URL=http://backend:3001
 # —— 實測讓映像檔多了 639MB，正式機只有 9.7G 磁碟，撐不起這種浪費。
 RUN groupadd -r app && useradd -r -g app app
 
-COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=pruned --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/.next ./.next
 # 這個專案沒有 public/ —— 加上去會讓 COPY 直接失敗
 COPY --from=build --chown=app:app /app/data ./data

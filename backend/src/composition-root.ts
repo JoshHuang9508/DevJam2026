@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
+import { createListingsProvider } from "./providers/listings/index.js";
 import { createUrbanPlanProvider } from "./providers/urban-plan/index.js";
 import { AgentService } from "./services/agent.service.js";
 import { PreferenceService } from "./services/preference.service.js";
@@ -22,6 +23,8 @@ export async function createApplication(config: AppConfig) {
     slowTimeoutMs: config.URBAN_PLAN_SLOW_TIMEOUT_MS,
     cacheTtlMs: config.URBAN_PLAN_CACHE_TTL_MS,
   });
+  // 物件資料庫住在前端，這裡只借用它的排序端點（見 providers/listings）。
+  const listings = createListingsProvider({ baseUrl: config.FRONTEND_URL, timeoutMs: config.LISTINGS_TIMEOUT_MS });
   const preferences = new PreferenceService(sessions);
   const recommendations = new RecommendationService(sessions, providers);
   let runtime: AgentRuntime;
@@ -37,6 +40,7 @@ export async function createApplication(config: AppConfig) {
       recommendations,
       providers,
       urbanPlan,
+      listings,
       ...(selectedApiKey ? { apiKey: selectedApiKey } : {}),
       ...(config.PI_PROVIDER === "custom-openai" ? {
         custom: {
