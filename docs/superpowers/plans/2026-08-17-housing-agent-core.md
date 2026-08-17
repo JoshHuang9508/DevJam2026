@@ -4782,17 +4782,26 @@ export default function Home() {
 
   // 手動調權重的第二條路徑：profile 變動後 debounce 重排，不呼叫 Gemini。
   //
-  // 注意不能把 chat.streaming 放進依賴陣列：串流結束時它 true → false 的變化本身
-  // 就會重排計時器，200ms 後守衛通過，於是每次對話都多打一次 /api/rank ——
-  // 但那份 profile 的排序結果早就由 SSE 的 results 事件送回來了。
-  // 改為比對物件參考：對話路徑套用的 profile 直接跳過。
+  // 依賴陣列**只能**放 search.profile。放進 chat.streaming 或 started 都會產生
+  // 多餘的 /api/rank：
+  //
+  //   chat.streaming — 串流結束時 true→false 本身就重排計時器，200ms 後守衛
+  //     通過，但那份 profile 的排序結果早就由 SSE 的 results 事件送回來了。
+  //   started — 點下範例 chip 那一刻 false→true 同樣重排計時器。這顆計時器與
+  //     /api/chat 的 SSE 回合是兩條獨立時間線在賽跑：串流比 200ms 快時
+  //     （無 API key 的 fallback 正是如此），計時器在 profile 事件把
+  //     appliedByChat 設好之前就到期，此時 search.profile 還是舊值、
+  //     appliedByChat.current 還是 null，兩者必然不相等，照樣多打一次。
+  //
+  // 兩者都仍在 closure 內讀取最新值，只是不再觸發重新排程。
+  // 對話路徑套用的 profile 則靠物件參考比對直接跳過。
   useDebouncedEffect(
     () => {
       if (!started) return
       if (search.profile === chat.appliedByChat.current) return
       void search.rank(search.profile)
     },
-    [search.profile, started],
+    [search.profile],
     RANK_DEBOUNCE_MS,
   )
 
