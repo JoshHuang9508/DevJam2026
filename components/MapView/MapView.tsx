@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Map as MapLibreMapCtor,
   Marker,
@@ -10,13 +10,15 @@ import {
 } from 'maplibre-gl'
 import { scoreColor, scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
+import { CARD_GAP, CARD_H, CARD_W, MapCard } from './MapCard'
 import { DEFAULT_CENTER, DEFAULT_ZOOM, OSM_RASTER_STYLE } from './mapStyle'
 
 interface Props {
   results: ScoredListing[]
   hoveredId: string | null
+  selectedId: string | null
   onHover: (id: string | null) => void
-  onSelect: (id: string) => void
+  onSelect: (id: string | null) => void
 }
 
 /**
@@ -28,7 +30,7 @@ interface Props {
  * DOM Marker 完全不經過 worker。目前一次最多 30 筆（lib/scoring 的 MAX_RESULTS），
  * 這個量級用 DOM 綽綽有餘；之後換成真實資料要回到 cluster 圖層時，得先解決 worker。
  */
-export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
+export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const markersRef = useRef<Map<string, { marker: Marker; el: HTMLButtonElement }>>(new Map())
@@ -39,6 +41,10 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   onHoverRef.current = onHover
   onSelectRef.current = onSelect
 
+  // 容器尺寸放 state，而非在 render 時讀 DOM —— 否則 resize 後翻轉判斷會用到舊值，
+  // 直到某個不相干的 state 變動才會補上。掛載時先量一次，之後跟著 map 的 resize 事件更新。
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null)
+
   useEffect(() => {
     if (!containerRef.current) return
 
@@ -48,6 +54,10 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
       clearTimeout(removalTimer.current)
       removalTimer.current = null
     }
+    setContainerSize({
+      width: containerRef.current.clientWidth,
+      height: containerRef.current.clientHeight,
+    })
     if (mapRef.current) return
 
     const map = new MapLibreMapCtor({
@@ -61,6 +71,10 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
 
     // 圖磚載入失敗時降級為灰底，點位仍照常顯示
     map.on('error', (e) => { console.warn('[MapView] 地圖錯誤', e.error) })
+
+    // 點空白處清除選取。marker 的 click handler 會 stopPropagation，
+    // 所以點在 marker 上不會冒泡到這裡把剛選到的物件立刻取消。
+    map.on('click', () => onSelectRef.current(null))
 
     return () => {
       removalTimer.current = window.setTimeout(() => {
@@ -95,7 +109,12 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
       ].join(';')
       el.addEventListener('mouseenter', () => onHoverRef.current(r.id))
       el.addEventListener('mouseleave', () => onHoverRef.current(null))
-      el.addEventListener('click', () => onSelectRef.current(r.id))
+      // stopPropagation：否則這個 click 會冒泡到地圖的 click handler，
+      // 剛選到的物件立刻被地圖那邊的「點空白處清除選取」取消。
+      el.addEventListener('click', (event) => {
+        event.stopPropagation()
+        onSelectRef.current(r.id)
+      })
 
       const marker = new Marker({ element: el }).setLngLat([r.lng, r.lat]).addTo(map)
       markersRef.current.set(r.id, { marker, el })
@@ -125,5 +144,82 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
     })
   }, [hoveredId, results])
 
-  return <div ref={containerRef} className="h-full w-full bg-neutral-200" data-testid="map" />
+  // 選取 → 放大置中
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !selectedId) return
+    const target = results.find((r) => r.id === selectedId)
+    if (!target) return
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const options = { center: [target.lng, target.lat] as [number, number], zoom: 15 }
+    if (reduced) map.jumpTo(options)
+    else map.flyTo({ ...options, duration: 600 })
+  }, [selectedId, results])
+
+  // 卡片錨點：相機一動就重算螢幕座標。用 requestAnimationFrame 節流 —— move 在拖曳時
+  // 每幀觸發，直接 setState 會抖動並掉幀。resize 事件同時把 containerSize 更新到最新，
+  // 讓翻轉判斷（render 時算 flipX/flipY）不會用到掛載當下量到的舊尺寸。
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
+  useEffect(() => {
+    const map = mapRef.current
+    const shownId = selectedId ?? hoveredId
+    if (!map || !shownId) { setAnchor(null); return }
+    const target = results.find((r) => r.id === shownId)
+    if (!target) { setAnchor(null); return }
+
+    if (containerRef.current) {
+      setContainerSize({
+        width: containerRef.current.clientWidth,
+        height: containerRef.current.clientHeight,
+      })
+    }
+
+    let frame = 0
+    const update = () => {
+      frame = 0
+      const p = map.project([target.lng, target.lat])
+      setAnchor({ x: p.x, y: p.y })
+    }
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(update) }
+    const onResize = () => {
+      schedule()
+      if (containerRef.current) {
+        setContainerSize({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        })
+      }
+    }
+
+    update()
+    map.on('move', schedule)
+    map.on('zoom', schedule)
+    map.on('resize', onResize)
+    return () => {
+      if (frame) cancelAnimationFrame(frame)
+      map.off('move', schedule)
+      map.off('zoom', schedule)
+      map.off('resize', onResize)
+    }
+  }, [selectedId, hoveredId, results])
+
+  const shown = results.find((r) => r.id === (selectedId ?? hoveredId)) ?? null
+  const flipX = anchor !== null && containerSize !== null && anchor.x > containerSize.width - (CARD_W + CARD_GAP)
+  const flipY = anchor !== null && containerSize !== null && anchor.y > containerSize.height - (CARD_H + CARD_GAP)
+
+  return (
+    <div ref={containerRef} className="relative h-full w-full bg-neutral-200" data-testid="map">
+      {shown && anchor && (
+        <MapCard
+          listing={shown}
+          x={anchor.x}
+          y={anchor.y}
+          flipX={flipX}
+          flipY={flipY}
+          pinned={shown.id === selectedId}
+          onClose={() => onSelect(null)}
+        />
+      )}
+    </div>
+  )
 }

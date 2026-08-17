@@ -1,34 +1,31 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ResultStrip } from '@/components/ListingCard/ResultStrip'
+import { ListingList } from '@/components/ListingList/ListingList'
 import { MapView } from '@/components/MapView/MapView'
 import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
-import { WeightPanel } from '@/components/WeightPanel/WeightPanel'
+import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
 import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
 import type { Candidate } from '@/lib/backend/types'
+import { PLACEHOLDERS } from '@/lib/client/placeholders'
+import { parseSseChunk } from '@/lib/client/sseClient'
 import { parseProfile } from '@/lib/profile/schema'
+import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
 import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
+import { Entrance } from '@/components/AgentApp/Entrance'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
-
-const EXAMPLES = [
-  '我在臺北上班，月租兩萬以內，走路就有捷運，生活機能要好',
-  '中南部，月租最高 18000，希望少雨而且生活方便',
-  '房租可以到 25000，但交通比生活機能重要',
-]
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  streaming?: boolean
-}
+// 與入口淡出的 transition duration-[240ms] 對齊：opacity 不會往子節點的 computed style
+// 傳遞（不像 visibility 會繼承），所以只淡出外層是不夠的——Entrance 自己的 data-testid
+// 節點量出來 opacity 仍是 1，Playwright 的 isVisible() 只看目標節點本身加上祖先的
+// display/visibility，不管祖先的 opacity，因此仍判定為「visible」。等淡出動畫跑完再
+// 補上 invisible（繼承性的 visibility:hidden），讓量測與畫面兩邊都算「看不見」。
+const ENTRANCE_FADE_MS = 240
 
 interface Status {
   backendUp: boolean
@@ -44,6 +41,15 @@ export function AgentApp() {
   const [highlighted, setHighlighted] = useState<Partial<Record<WeightKey, { from: number; to: number }>>>({})
   const [input, setInput] = useState('')
   const [chatting, setChatting] = useState(false)
+  // hoveredId（滑鼠移開就清）與 selectedId（點選後常駐，直到 ESC / 點空白 / 換結果）分開放，
+  // 共用一個的話點選後滑鼠一移開卡片就消失，「常駐」就失效了。
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(true)
+  // md（768px）以下改單欄 + 分頁；桌面版忽略這個狀態，三欄照常並排。
+  const [mobileTab, setMobileTab] = useState<'chat' | 'map' | 'list'>('chat')
+  // 淡出動畫跑完才真正隱藏，見 ENTRANCE_FADE_MS 註解
+  const [entranceFaded, setEntranceFaded] = useState(false)
 
   const profileRef = useRef<SearchProfile>(s.profile)
   profileRef.current = s.profile
@@ -60,6 +66,22 @@ export function AgentApp() {
 
   useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
+  // 結果變動時清除選取：選中的物件可能已經不在新結果裡了
+  useEffect(() => { setSelectedId(null) }, [s.results])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // 入口淡出動畫跑完才切到 invisible（見 ENTRANCE_FADE_MS 註解）；還沒開始或還在動畫中都不隱藏。
+  useEffect(() => {
+    if (messages.length === 0) { setEntranceFaded(false); return }
+    const timer = window.setTimeout(() => setEntranceFaded(true), ENTRANCE_FADE_MS)
+    return () => window.clearTimeout(timer)
+  }, [messages.length])
+
   // Slider / mode path: pure scoring engine, no backend and no model call.
   useDebouncedEffect(() => {
     if (skipNextRank.current) { skipNextRank.current = false; return }
@@ -74,6 +96,7 @@ export function AgentApp() {
   const send = useCallback(async (text: string) => {
     const message = text.trim()
     if (!message || chatting) return
+    setMobileTab('map')
     const turn = `${Date.now()}`
     setInput('')
     setChatting(true)
@@ -107,19 +130,10 @@ export function AgentApp() {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
-        let boundary = buffer.indexOf('\n\n')
-        while (boundary !== -1) {
-          const frame = buffer.slice(0, boundary)
-          buffer = buffer.slice(boundary + 2)
-          boundary = buffer.indexOf('\n\n')
+        const { events, rest } = parseSseChunk(buffer)
+        buffer = rest
 
-          const name = frame.match(/^event: (.+)$/m)?.[1]
-          const payload = frame.split('\n').filter((l) => l.startsWith('data:'))
-            .map((l) => l.slice(5).trim()).join('\n')
-          if (!name || !payload) continue
-          let data: unknown
-          try { data = JSON.parse(payload) } catch { continue }
-
+        for (const { event: name, data } of events) {
           switch (name) {
             case 'session':
               window.localStorage.setItem(SESSION_KEY, (data as { sessionId: string }).sessionId)
@@ -170,9 +184,57 @@ export function AgentApp() {
     : status.agentRuntime === 'pi-agent-core' ? 'pi-agent-core（LLM）'
     : `${status.agentRuntime}（規則式）`
 
+  const started = messages.length > 0
+
   return (
-    <main className="flex h-screen bg-neutral-50">
-      <aside className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white">
+    <main className="relative flex h-screen overflow-hidden bg-neutral-50">
+      {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 移出無障礙樹並擋掉焦點/互動，
+          aria-hidden 是 Playwright role 引擎實際讀取的屬性（inert 隱含 aria-hidden 但 Playwright
+          未實作這個推論）。兩者缺一都會讓開始後畫面上同時有兩個可被選取到的「買房」按鈕。 */}
+      <div
+        inert={started}
+        aria-hidden={started}
+        className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
+          started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
+        } ${entranceFaded ? 'invisible' : ''}`}
+      >
+        <Entrance
+          mode={s.profile.mode}
+          onModeChange={setMode}
+          onSubmit={(text) => void send(text)}
+          disabled={chatting}
+          statusLabel={runtimeLabel}
+          statusOk={status?.backendUp ?? false}
+        />
+      </div>
+
+      {/* 行動版分頁列：只在對話已開始、且螢幕小於 md 時顯示。三欄在窄螢幕一次只顯示一個，
+          由 mobileTab 決定；桌面版（md 以上）三欄照常並排，這裡的狀態完全不影響桌面版。 */}
+      {started && (
+        <nav className="absolute inset-x-0 top-0 z-30 flex border-b border-neutral-200 bg-white md:hidden" aria-label="檢視切換">
+          {([['chat', '對話'], ['map', '地圖'], ['list', '物件']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setMobileTab(key)}
+              aria-pressed={mobileTab === key}
+              className={`flex-1 py-2 text-sm font-medium ${
+                mobileTab === key ? 'border-b-2 border-neutral-900 text-neutral-900' : 'text-neutral-400'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {/* 入口是不透明的 absolute inset-0，開始前已完全遮住這裡；不需要另外淡入，避免雙重表頭同時可見。
+          inert + aria-hidden 理由同上：未開始時把這一側移出無障礙樹（見上方入口區塊的註解）。 */}
+      <aside
+        inert={!started}
+        aria-hidden={!started}
+        className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-neutral-200 bg-white md:flex md:w-[380px]`}
+      >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
           <ModeToggle mode={s.profile.mode} onChange={setMode} />
@@ -191,13 +253,13 @@ export function AgentApp() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3" data-testid="chat-messages">
             {messages.length === 0 && (
               <div className="space-y-2">
                 <p className="text-[13px] leading-relaxed text-neutral-500">
                   用一句話描述你想要的生活。agent 會先選出適合的行政區，再從那些區裡挑物件。
                 </p>
-                {EXAMPLES.map((example) => (
+                {PLACEHOLDERS.map((example) => (
                   <button
                     key={example}
                     type="button"
@@ -222,6 +284,17 @@ export function AgentApp() {
               </div>
             ))}
             <div ref={chatBottom} />
+          </div>
+
+          {/* 浮層向上開（bottom-full），要放在輸入表單上方——放下方會被視窗底部裁掉 */}
+          <div className="shrink-0 border-t border-neutral-200 px-3 py-2">
+            <WeightPopover
+              profile={s.profile}
+              onChange={s.setProfile}
+              highlighted={highlighted}
+              open={panelOpen}
+              onOpenChange={setPanelOpen}
+            />
           </div>
 
           <form
@@ -249,14 +322,16 @@ export function AgentApp() {
               {chatting ? '…' : '送出'}
             </button>
           </form>
-
-          <div className="max-h-[42%] overflow-y-auto border-t border-neutral-200">
-            <WeightPanel profile={s.profile} onChange={s.setProfile} highlighted={highlighted} />
-          </div>
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      {/* 中欄：地圖，從右滑入。永遠掛載，避免 MapLibre 重新初始化；
+          行動版只用 display 切換分頁，不影響掛載狀態。 */}
+      <section
+        className={`${mobileTab === 'map' ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col transition-transform duration-[240ms] ease-out motion-reduce:transition-none md:flex ${
+          started ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         <DistrictStrip districts={districts} active={s.profile.hard.districts ?? []} />
 
         <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
@@ -277,14 +352,30 @@ export function AgentApp() {
         )}
 
         <div className="min-h-0 flex-1">
-          <MapView results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} onSelect={s.setHoveredId} />
-        </div>
-
-        {/* 不設固定高：由卡片內容撐開，地圖吃掉剩餘空間。 */}
-        <div className="shrink-0 border-t border-neutral-200 bg-neutral-100">
-          <ResultStrip results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} />
+          <MapView
+            results={s.results}
+            hoveredId={s.hoveredId}
+            selectedId={selectedId}
+            onHover={s.setHoveredId}
+            onSelect={setSelectedId}
+          />
         </div>
       </section>
+
+      {/* 右欄：可收納物件列表，取代原本吃掉地圖空間的底部橫向 strip。
+          用 display:contents 的包裝層做行動版分頁切換，讓 ListingList 自己的根節點
+          在桌面版仍直接是 main 的 flex 子項，版面跟改動前完全一樣。 */}
+      <div className={`${mobileTab === 'list' ? 'contents' : 'hidden'} md:contents`}>
+        <ListingList
+          results={s.results}
+          hoveredId={s.hoveredId}
+          selectedId={selectedId}
+          onHover={s.setHoveredId}
+          onSelect={setSelectedId}
+          open={listOpen}
+          onToggle={() => setListOpen((v) => !v)}
+        />
+      </div>
     </main>
   )
 }
