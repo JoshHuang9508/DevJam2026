@@ -288,6 +288,8 @@ function twinkleTools(
 const PATCH_SHAPE = [
   "hardConstraints: mode (sale 買賣 | rent 租賃), regions[] (北部|中部|南部|東部|離島), cities[], districts[], excludedCities[], excludedDistricts[],",
   "minMonthlyRent / maxMonthlyRent 是**租賃**的月租（元）；minTotalPriceWan / maxTotalPriceWan 是**買賣**的總價（萬元）。",
+  "物件層級硬條件（會直接把不符合的物件濾掉，不是加減分）：minArea 坪、minRooms 房數、maxAge 屋齡年、",
+  "buildingTypes[] 只接受 大樓|華廈|公寓|透天、needElevator、needParking、maxWalkMinutesToMetro 步行分鐘、maxCommuteMinutes 通勤分鐘。",
   "使用者說「預算兩千萬」要寫 maxTotalPriceWan: 2000，說「租金兩萬以內」要寫 maxMonthlyRent: 20000。兩者不可混用。",
   "minMonthlyRent, maxMonthlyRent, maxCommuteMinutes — all flat, never nested under housing/transportation.",
   "cities 用完整名稱（臺北市、新北市），districts 用完整名稱（大安區）。regions 與 cities 同時給是取交集。",

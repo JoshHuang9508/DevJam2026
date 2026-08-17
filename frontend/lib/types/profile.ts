@@ -71,6 +71,8 @@ export interface HardConstraints {
   needElevator?: boolean
   needParking?: boolean
   maxDistToMetro?: number
+  /** 到臺北車站的估計通勤分鐘上限。 */
+  maxCommuteMinutes?: number
   /**
    * 「靠近某地」。使用者很少完整講出行政區名 ——「高雄附近」「靠近土城」「南部就好」
    * 都是常見說法。地標由後端用 districts 表的真實重心解析成座標，**不讓模型自己生**，

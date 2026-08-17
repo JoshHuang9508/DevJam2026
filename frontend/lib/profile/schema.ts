@@ -157,6 +157,7 @@ const hardSchema = z.object({
   needElevator: z.boolean().optional(),
   needParking: z.boolean().optional(),
   maxDistToMetro: nonNegative.optional(),
+  maxCommuteMinutes: nonNegative.optional(),
   near: z.object({
     lat: z.number().min(20).max(27),
     lng: z.number().min(118).max(123),
@@ -240,6 +241,7 @@ const hardDeltaSchema = z.object({
   needElevator: z.boolean().nullable().optional(),
   needParking: z.boolean().nullable().optional(),
   maxDistToMetro: nonNegative.nullable().optional(),
+  maxCommuteMinutes: nonNegative.nullable().optional(),
   near: z.object({
     lat: z.number().min(20).max(27),
     lng: z.number().min(118).max(123),

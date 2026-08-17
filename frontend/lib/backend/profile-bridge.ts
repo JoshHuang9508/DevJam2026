@@ -75,6 +75,14 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
   if (!profile.hard.districts?.length) hard.districts = []
   // The backend only models monthly rent, so budgets are meaningless in sale mode
   // (萬元總價 vs 元月租 differ by orders of magnitude).
+  // 物件層級的硬條件。使用者在 UI 上調過的也要送上去，agent 才知道現在的條件是什麼。
+  if (typeof profile.hard.minArea === 'number') hard.minArea = profile.hard.minArea
+  if (typeof profile.hard.minRooms === 'number') hard.minRooms = profile.hard.minRooms
+  if (typeof profile.hard.maxAge === 'number') hard.maxAge = profile.hard.maxAge
+  if (profile.hard.needElevator) hard.needElevator = true
+  if (profile.hard.needParking) hard.needParking = true
+  if (typeof profile.hard.maxCommuteMinutes === 'number') hard.maxCommuteMinutes = Math.round(profile.hard.maxCommuteMinutes)
+
   // 前端切換鈕的值每輪都送。agent 之後若從對話判斷出不同意圖會蓋過它 ——
   // 使用者說的話優先於他忘了點的按鈕。
   hard.mode = profile.mode
@@ -171,6 +179,25 @@ export function toSearchProfile(
     delete hard.budgetMax
     delete hard.budgetMin
   }
+
+  // 物件層級的硬條件。這些是 1/0 篩選，不符合的物件直接從結果消失。
+  if (typeof hardIn.minArea === 'number') hard.minArea = hardIn.minArea
+  else delete hard.minArea
+  if (typeof hardIn.minRooms === 'number') hard.minRooms = hardIn.minRooms
+  else delete hard.minRooms
+  if (typeof hardIn.maxAge === 'number') hard.maxAge = hardIn.maxAge
+  else delete hard.maxAge
+  if (hardIn.buildingTypes?.length) hard.buildingTypes = [...hardIn.buildingTypes]
+  else delete hard.buildingTypes
+  if (hardIn.needElevator) hard.needElevator = true
+  else delete hard.needElevator
+  if (hardIn.needParking) hard.needParking = true
+  else delete hard.needParking
+  if (typeof hardIn.maxCommuteMinutes === 'number') hard.maxCommuteMinutes = hardIn.maxCommuteMinutes
+  else delete hard.maxCommuteMinutes
+  // 步行分鐘 → 公里。每分鐘 80 公尺，與 pipeline 估通勤時間用的是同一個假設。
+  if (typeof hardIn.maxWalkMinutesToMetro === 'number') hard.maxDistToMetro = (hardIn.maxWalkMinutesToMetro * 80) / 1000
+  else delete hard.maxDistToMetro
 
   const softOut: SearchProfile['soft'] = { ...base.soft }
   softOut.prefersLowRain = soft.climate.rainfall.preference === 'low'

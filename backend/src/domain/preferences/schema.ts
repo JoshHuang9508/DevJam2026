@@ -22,6 +22,22 @@ const hardConstraintsSchemaBase = z.object({
   minTotalPriceWan: z.number().int().nonnegative().optional(),
   maxTotalPriceWan: z.number().int().positive().optional(),
   maxCommuteMinutes: z.number().int().positive().max(240).optional(),
+
+  // 物件層級的硬條件。以前這些只存在於前端的篩選器裡，後端沒有欄位可以存，
+  // 所以「三房以上」「一定要有電梯」「屋齡十年內」這種很具體的話，
+  // agent 聽懂了也寫不進 state —— 條件被靜默忽略，使用者只會覺得系統沒在聽。
+  /** 最小坪數（坪） */
+  minArea: z.number().positive().max(500).optional(),
+  /** 最少房數 */
+  minRooms: z.number().int().nonnegative().max(10).optional(),
+  /** 最大屋齡（年） */
+  maxAge: z.number().nonnegative().max(100).optional(),
+  /** 建物型態分類。用分類詞而非資料庫裡的完整字串（「住宅大樓(11層含以上有電梯)」），前端做子字串比對。 */
+  buildingTypes: z.array(z.enum(["大樓", "華廈", "公寓", "透天"])).optional(),
+  needElevator: z.boolean().optional(),
+  needParking: z.boolean().optional(),
+  /** 步行到捷運站的分鐘數上限。前端以每分鐘 80 公尺換算成距離。 */
+  maxWalkMinutesToMetro: z.number().positive().max(60).optional(),
 });
 const hardConstraintsSchema = hardConstraintsSchemaBase.superRefine((value, ctx) => {
   if (value.minMonthlyRent !== undefined && value.maxMonthlyRent !== undefined && value.minMonthlyRent > value.maxMonthlyRent) {

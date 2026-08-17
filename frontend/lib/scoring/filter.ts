@@ -37,13 +37,20 @@ export function applyHardFilter(
     if (h.minArea !== undefined && l.area < h.minArea) return false
     if (h.minRooms !== undefined && l.rooms < h.minRooms) return false
     if (h.maxAge !== undefined && l.age > h.maxAge) return false
-    if (h.buildingTypes?.length && !h.buildingTypes.includes(l.buildingType)) return false
+    // 子字串比對而不是逐字相等：資料庫存的是「住宅大樓(11層含以上有電梯)」這種長字串，
+    // 但使用者與 agent 講的是「大樓」。要求逐字相同的話這個條件永遠篩不到東西。
+    if (h.buildingTypes?.length && !h.buildingTypes.some((t) => l.buildingType.includes(t))) return false
     if (h.needElevator && !l.hasElevator) return false
     if (h.needParking && !l.hasParking) return false
     // 「靠近土城」這類條件。座標是必填欄位（實價登錄每筆都 geocode 過），
     // 所以這裡不需要缺值豁免。
     if (h.near) {
       if (haversineKm(l.lat, l.lng, h.near.lat, h.near.lng) > h.near.radiusKm) return false
+    }
+    // 通勤時間是估計值（步行 + 直線距離換算），缺值一律不排除
+    if (h.maxCommuteMinutes !== undefined) {
+      const c = l.features.commuteToCbdMin
+      if (c !== null && c > h.maxCommuteMinutes) return false
     }
     if (h.maxDistToMetro !== undefined) {
       const d = l.features.distToMetro
