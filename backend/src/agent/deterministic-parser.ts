@@ -39,8 +39,51 @@ export function parsePreferencePatch(message: string): PreferencePatch | null {
   if (/(捷運|MRT)/i.test(message)) soft.transportation = { ...(soft.transportation ?? {}), weight: 0.9, mrtAccess: 0.95 };
   if (/(房租|房價).*(貴一點沒關係|不重要|放寬)/.test(message)) soft.housing = { weight: 0.35 };
 
+  const listing = parseFengshui(message);
+
   if (Object.keys(hard).length) patch.hardConstraints = hard;
   if (Object.keys(soft).length) patch.softPreferences = soft;
+  if (listing) patch.listingPreferences = listing;
   return Object.keys(patch).length ? patch : null;
+}
+
+/** 六個忌諱的口語說法。key 與 domain/preferences 的 fengshuiIssue enum 一致。 */
+const FENGSHUI_TABOOS: Array<[issue: string, pattern: RegExp]> = [
+  ["throughDraft", /穿堂煞|穿堂/],
+  ["stoveInSight", /開門見灶|見灶/],
+  ["toiletFacingDoor", /開門見廁|見廁|對廁所|正對衛浴/],
+  ["beamPressure", /樑壓床|樑壓沙發|壓樑|橫樑壓/],
+  ["narrowHall", /明堂窄|明堂狹窄|明堂太窄/],
+  ["roadRush", /路衝|壁刀/],
+];
+/** 絕對排除的語氣。只有這種語氣才升級成硬條件 —— 見 prompt.ts 的風水規則。 */
+const EXCLUSION = /不要|不能|不看|不考慮|絕對|一律|排除|避開|拒絕/;
+
+/**
+ * 規則式的風水解析。跑在沒有設定 model provider 的 deterministic-fallback 下 ——
+ * 畫面上的例句本來就寫著「很在意風水，不要穿堂煞和樑壓床」，沒有這段的話那句話會被完全忽略。
+ *
+ * 語氣判斷用忌諱名稱前後 8 個字的窗格，而不是整句話：整句話只要出現過「不要」就把所有提到的
+ * 忌諱都排除，「不要太貴，穿堂煞我可以接受」會被誤判。窗格擋掉大部分這種情況，但這終究是
+ * 關鍵字解析，複雜句子本來就該交給真正的模型。
+ */
+function parseFengshui(message: string): NonNullable<PreferencePatch["listingPreferences"]> | null {
+  const avoid: string[] = [];
+  for (const [issue, pattern] of FENGSHUI_TABOOS) {
+    const match = pattern.exec(message);
+    if (!match) continue;
+    const from = Math.max(0, match.index - 8);
+    const window = message.slice(from, match.index + match[0].length + 8);
+    if (EXCLUSION.test(window)) avoid.push(issue);
+  }
+
+  const cares = /風水|命理|地理師|長輩.*(看|挑)/.test(message);
+  if (!cares && avoid.length === 0) return null;
+
+  const listing: NonNullable<PreferencePatch["listingPreferences"]> = {};
+  // 點名了忌諱就代表真的在意，權重一併拉高；只說「在意風水」則只調權重。
+  if (cares || avoid.length > 0) listing.fengshuiWeight = avoid.length > 0 ? 0.9 : 0.7;
+  if (avoid.length > 0) listing.avoidFengshui = avoid as NonNullable<PreferencePatch["listingPreferences"]>["avoidFengshui"];
+  return listing;
 }
 

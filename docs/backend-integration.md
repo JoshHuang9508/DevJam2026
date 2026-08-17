@@ -44,9 +44,9 @@ SSE 事件沿用 `/api/chat` 的名稱（`profile` / `results` / `text` / `done`
 **權重面板走的是 Josh 原本的 `/api/rank`**，不碰後端也不呼叫模型 —— 拖 slider 只重排物件，
 不會重新選區。要換一批行政區就用對話。這個分工是刻意的，也讓 slider 維持零延遲。
 
-## 權重軸的對應（5 ↔ 7）
+## 權重軸的對應（5 ↔ 8）
 
-後端五維、前端七維，兩邊都不是對方的子集，所以雙向都有損：
+後端排序用五維、前端八維，兩邊都不是對方的子集，所以雙向都有損：
 
 | 前端 | 後端 | 說明 |
 | --- | --- | --- |
@@ -54,8 +54,17 @@ SSE 事件沿用 `/api/chat` 的名稱（`profile` / `results` / `text` / `done`
 | `weather` | `softPreferences.climate.weight` | 1:1 |
 | `location` | `softPreferences.transportation.weight` | 1:1 |
 | `amenities` | `softPreferences.amenities.weight` | 1:1 |
+| `fengshui` | `listingPreferences.fengshuiWeight` | 1:1。**不在 `softPreferences` 裡** —— 後端只存不排，見下 |
 | `space`、`quality` | 無 | 物件層級屬性，行政區沒有對應，**永遠不會被後端覆寫** |
 | 無 | `softPreferences.geography.weight` | 只影響選區，權重面板上看不到 |
+
+`listingPreferences` 是刻意獨立於 `softPreferences` 的一個區塊：行政區沒有「風水」這種屬性
+（穿堂煞是某一戶的格局），所以排序引擎完全不讀它，後端只負責存下來再回傳。它存在的唯一理由是
+**agent 是目前唯一的萃取器** —— 前端的 Gemini 路徑在 `7c5bdaf` 移除後，「我很在意風水」
+「絕對不要穿堂煞」沒有別的地方可以被轉成條件。`hard.avoidFengshui` 走同一條路往返。
+
+送出時 `avoidFengshui` 一律送（包含空陣列）：後端的 deep-merge 會跳過 `undefined`，
+省略欄位等於「不要動」，那就永遠清不掉已經設過的避開項。
 
 硬條件同樣分層：地區／城市／租金在後端，坪數／格局／屋齡／電梯／車位留在物件層級原封不動。
 `mode` 由前端的買賣/租賃 toggle 決定；後端只模型化月租，所以 **買房模式下預算不會送到後端**
@@ -138,6 +147,9 @@ CUSTOM_OPENAI_CONTEXT_WINDOW=272000
 ## 已知落差
 
 - 後端沒有「清除欄位」的 patch 表示法（`undefined` 會被 deep-merge 跳過），所以清掉預算上限不會同步到後端，只會變大。
+  陣列型欄位不受影響 —— deep-merge 對陣列是整體覆寫，所以 `avoidFengshui: []` 真的清得掉。
+- 每輪送出的 patch 失敗時是被 `.catch(() => undefined)` 吞掉的。這種情況下後端狀態會落後於前端，
+  而回讀會把使用者手動拉過的滑桿蓋回舊值。這是四條後端軸與 `fengshui` 共有的既有風險，不是風水獨有。
 - 後端的 `maxCommuteMinutes` 有欄位但沒有 route-time provider，設了不生效；前端的 `soft.commuteAnchor` 也不會送到後端。
 - 拖 slider 不會重新選區（見上）。
 - 兩邊的**行政區與房源**都是示範資料：後端 `fixture-v1`，前端 `scripts/seed.ts`，都不是真實房源。

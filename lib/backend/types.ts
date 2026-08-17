@@ -4,6 +4,8 @@
  * regenerate from http://localhost:3001/openapi.json if the backend contract moves.
  */
 
+import type { FengshuiIssueKey } from '@/lib/types/fengshui'
+
 export type Region = '北部' | '中部' | '南部' | '東部' | '離島'
 export type DataQuality = 'observed' | 'estimated' | 'fixture' | 'missing'
 export type PreferenceLevel = 'low' | 'medium' | 'high'
@@ -119,9 +121,25 @@ export interface HardConstraints {
   maxCommuteMinutes?: number
 }
 
+/**
+ * 物件層級的意圖。後端只存不用 —— 它排的是行政區，而穿堂煞是某一戶的格局，不是某一區的性質。
+ * 存在後端是因為 agent 是唯一的萃取器，需要一個地方寫入「我很在意風水」。
+ */
+export interface ListingPreferences {
+  /** 0..1，對應前端 weights.fengshui 的 0..100 */
+  fengshuiWeight: number
+  avoidFengshui: FengshuiIssueKey[]
+}
+
 export interface PreferenceState {
   version: number
   hardConstraints: HardConstraints
+  /**
+   * Optional on purpose: a backend older than this field simply will not send it, and the
+   * frontend reads it on every agent event — a required field would turn that into a crash.
+   * The bridge falls back to carrying the client's own value over.
+   */
+  listingPreferences?: ListingPreferences
   softPreferences: {
     housing: { weight: number; preferLowerRent: number }
     climate: {
@@ -159,6 +177,7 @@ export interface PreferenceState {
 /** Every field optional; the backend deep-merges and bumps `version`. */
 export type PreferencePatch = {
   hardConstraints?: Partial<HardConstraints>
+  listingPreferences?: Partial<ListingPreferences>
   softPreferences?: {
     [K in DimensionKey]?: Partial<Record<string, unknown>> & { weight?: number }
   }

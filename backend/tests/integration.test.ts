@@ -42,6 +42,28 @@ describe("acceptance flow", () => {
     expect(final.json().rankingHistory.length).toBeGreaterThanOrEqual(3);
   });
 
+  it("turns a fengshui sentence into listing-level state without disturbing the ranking axes", async () => {
+    // 端到端證明風水接線真的接上了：前端已經沒有自己的萃取器，這條路徑是唯一的入口。
+    const created = await app.inject({ method: "POST", url: "/sessions", payload: {} });
+    const sessionId = created.json().id as string;
+    const baseline = created.json().preferences;
+    expect(baseline.listingPreferences).toEqual({ fengshuiWeight: 0, avoidFengshui: [] });
+
+    const turn = await app.inject({
+      method: "POST",
+      url: `/sessions/${sessionId}/messages`,
+      payload: { message: "預算 2500 萬以內，很在意風水，不要穿堂煞和樑壓床，要有電梯" },
+    });
+    expect(turn.statusCode).toBe(200);
+    const preferences = turn.json().session.preferences;
+
+    expect(preferences.listingPreferences.fengshuiWeight).toBeGreaterThan(0);
+    expect(preferences.listingPreferences.avoidFengshui).toEqual(["throughDraft", "beamPressure"]);
+    // 行政區排序的五維不該因為一句風水而位移，也不該長出第六維。
+    expect(preferences.softPreferences).toEqual(baseline.softPreferences);
+    expect(turn.json().session.candidates.length).toBeGreaterThan(0);
+  });
+
   it("streams typed SSE events", async () => {
     const created = await app.inject({ method: "POST", url: "/sessions", payload: {} });
     const response = await app.inject({ method: "POST", url: `/sessions/${created.json().id}/messages`, headers: { accept: "text/event-stream" }, payload: { message: "南部月租最高 18000，希望少雨" } });

@@ -120,8 +120,15 @@ const fengshui: DimensionFn = (f) => fengshuiSubscore(f.listing.features)
 這是專案既有不變量的延伸：**LLM 不做排序**。放到風水上，分工是
 
 - **LLM 只做一件事**：把「我很在意風水」「不要開門見廁」這種自然語言，轉成
-  `weightsDelta.fengshui` 與 `hard.avoidFengshui`。
+  `weights.fengshui` 與 `hard.avoidFengshui`。
 - **命中判定完全由 `lib/fengshui` 做**：六條純函式，輸入是數字，輸出是數字。
+
+那個「一件事」現在由**後端 Pi agent** 做（前端原本的 Gemini 萃取路徑在 `7c5bdaf` 移除）。
+agent 把值寫進 `PreferenceState.listingPreferences`，`lib/backend/profile-bridge.ts` 再把它
+換成前端的 `weights.fengshui` 與 `hard.avoidFengshui`。後端**只存不用** —— 它排的是行政區，
+而穿堂煞是某一戶的格局，不是某一區的性質，所以這個區塊刻意放在 `softPreferences` 之外，
+排序引擎完全不讀它。「風水預設是權重不是硬條件」那條規則現在寫在
+`backend/src/agent/prompt.ts`。
 
 理由：
 
@@ -158,3 +165,6 @@ const fengshui: DimensionFn = (f) => fengshuiSubscore(f.listing.features)
 | `lib/scoring/relax.ts` | 放寬步驟 |
 | `components/Fengshui/FengshuiCard.tsx` | 卡片內的體檢區塊 |
 | `scripts/seed.ts` | 八個 `fs*` 欄位的**模擬**產生邏輯 |
+| `backend/src/domain/preferences/schema.ts` | `listingPreferences`：agent 寫入的風水權重與避開項 |
+| `backend/src/agent/prompt.ts` | 「風水預設是權重不是硬條件」與「傳統說法」的敘述規則 |
+| `lib/backend/profile-bridge.ts` | `listingPreferences` ↔ `weights.fengshui` / `hard.avoidFengshui` |

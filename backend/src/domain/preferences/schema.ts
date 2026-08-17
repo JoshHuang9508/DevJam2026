@@ -18,9 +18,35 @@ const hardConstraintsSchema = hardConstraintsSchemaBase.superRefine((value, ctx)
   }
 });
 
+/** 風水忌諱代號，與前端 lib/types/fengshui.ts 的 FengshuiIssueKey 對齊。 */
+const fengshuiIssue = z.enum([
+  "throughDraft", "stoveInSight", "toiletFacingDoor", "beamPressure", "narrowHall", "roadRush",
+]);
+
+/**
+ * 物件層級的意圖。這裡的欄位**不參與行政區排序** —— ranking engine 的 dimensions 是寫死的
+ * 五維（見 domain/ranking/engine.ts），完全不讀這個區塊；後端只負責存下來、回傳給前端，
+ * 真正拿它排物件的是前端的 lib/scoring。
+ *
+ * 刻意放在 softPreferences 之外：放進去會讓它看起來像第六個排序維度，而行政區沒有「風水」
+ * 這種屬性 —— 穿堂煞是某一戶的格局，不是某一區的性質。
+ *
+ * 存在的理由是 agent 需要一個地方寫入「我很在意風水」「絕對不要穿堂煞」。前端已經沒有
+ * 自己的萃取器（Gemini 路徑於 7c5bdaf 移除），這個 agent 是唯一能把自然語言轉成條件的地方。
+ *
+ * 欄位刻意不帶 `.default()`：patch 走的是 `.partial()`，而欄位層的 default 在 key 缺席時
+ * 仍然會補值，deepMerge 便會用那個 default 覆蓋掉既有狀態 —— 只想改 avoidFengshui 卻把
+ * fengshuiWeight 打回 0。預設值一律掛在物件層（見 preferenceStateSchema）。
+ */
+const listingPreferencesSchema = z.object({
+  fengshuiWeight: weight,
+  avoidFengshui: z.array(fengshuiIssue),
+});
+
 export const preferenceStateSchema = z.object({
   version: z.number().int().positive().default(1),
   hardConstraints: hardConstraintsSchema,
+  listingPreferences: listingPreferencesSchema.default({ fengshuiWeight: 0, avoidFengshui: [] }),
   softPreferences: z.object({
     housing: z.object({
       weight,
@@ -66,6 +92,8 @@ export type PreferenceState = z.infer<typeof preferenceStateSchema>;
 
 export const defaultPreferenceState: PreferenceState = preferenceStateSchema.parse({
   hardConstraints: {},
+  // 風水預設 0：信仰性偏好必須由使用者主動說出口才 opt-in，權重 0 對總分沒有貢獻。
+  listingPreferences: { fengshuiWeight: 0, avoidFengshui: [] },
   softPreferences: {
     housing: { weight: 0.5, preferLowerRent: 1 },
     climate: {
@@ -82,8 +110,13 @@ export const defaultPreferenceState: PreferenceState = preferenceStateSchema.par
 
 export const preferencePatchSchema = preferenceStateSchema.partial().extend({
   hardConstraints: hardConstraintsSchemaBase.partial().optional(),
+  listingPreferences: listingPreferencesSchema.partial().optional(),
   softPreferences: preferenceStateSchema.shape.softPreferences.partial().extend({
-    housing: preferenceStateSchema.shape.softPreferences.shape.housing.partial().optional(),
+    // housing 的 shape 刻意不從 state schema 推導：state 的 preferLowerRent 帶 `.default(1)`，
+    // 而 `.partial()` 擋不住欄位層的 default —— key 缺席時仍會補 1，deepMerge 就用那個 1
+    // 覆蓋掉使用者先前設過的值。「我更重視租金」這種只動 weight 的 patch 會把
+    // preferLowerRent 靜默打回 1。這裡改寫成不帶 default 的版本，缺席就是缺席。
+    housing: z.object({ weight, preferLowerRent: weight }).partial().optional(),
     climate: preferenceStateSchema.shape.softPreferences.shape.climate.partial().extend({
       temperature: preferenceStateSchema.shape.softPreferences.shape.climate.shape.temperature.partial().optional(),
       rainfall: preferenceStateSchema.shape.softPreferences.shape.climate.shape.rainfall.partial().optional(),

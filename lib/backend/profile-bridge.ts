@@ -10,11 +10,16 @@ import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
  *   weather        <->  softPreferences.climate.weight
  *   location       <->  softPreferences.transportation.weight
  *   amenities      <->  softPreferences.amenities.weight
- *   space, quality, fengshui -> (no district-level equivalent; never overwritten)
+ *   fengshui       <->  listingPreferences.fengshuiWeight (1:1, delta-preserving)
+ *   space, quality -> (no district-level equivalent; never overwritten)
  *   (none)         <-   softPreferences.geography.weight (district selection only)
  *
  * Hard constraints split the same way: region/city/rent live in the backend, while
  * 坪數/格局/屋齡/電梯/車位 stay listing-level and are passed through untouched.
+ * `avoidFengshui` is the exception among the listing-level constraints: it round-trips,
+ * because 「絕對不要穿堂煞」 has to be extractable from a sentence and the backend agent is
+ * the only extractor left (the frontend Gemini path was removed in 7c5bdaf). The backend
+ * stores both fengshui fields without scoring them — see backend listingPreferencesSchema.
  */
 
 /** How many of the backend's ranked districts feed the listing search. */
@@ -22,6 +27,15 @@ export const DISTRICT_FANOUT = 6
 
 const clamp100 = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : Math.round(v))
 const toWeight = (v: number): number => Math.min(1, Math.max(0, Number((v / 100).toFixed(2))))
+
+/**
+ * 回讀一條 1:1 的權重軸。後端沒動就沿用 client 的原值，避免 0..100 → 0..1 兩位小數 → 0..100
+ * 往返造成的無謂位移；agent 真的動了才採用後端的值。與上面 housing 的 shift 是同一個道理。
+ */
+const agentMoved = (got: number, base: number): number => {
+  const scaled = got * 100
+  return Math.abs(scaled - base) < 0.5 ? base : clamp100(scaled)
+}
 
 /** SearchProfile -> PreferencePatch. Sends only what the backend can represent. */
 export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
@@ -32,6 +46,12 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
       climate: { weight: toWeight(w.weather) },
       transportation: { weight: toWeight(w.location) },
       amenities: { weight: toWeight(w.amenities) },
+    },
+    // always sent, including the empty array: deep-merge 對陣列是整體覆寫，所以送 [] 正是
+    // 「取消避開」唯一能表達得出來的方式（後端沒有 null 清欄位的表示法）。
+    listingPreferences: {
+      fengshuiWeight: toWeight(w.fengshui),
+      avoidFengshui: profile.hard.avoidFengshui ?? [],
     },
   }
 
@@ -62,6 +82,7 @@ export function toSearchProfile(
 ): SearchProfile {
   const soft = preferences.softPreferences
   const hardIn = preferences.hardConstraints
+  const listing = preferences.listingPreferences
 
   // housing is one axis for two sliders: shift both by the same delta so the user's
   // own price/value split survives an agent-driven change.
@@ -77,15 +98,22 @@ export function toSearchProfile(
     amenities: clamp100(soft.amenities.weight * 100),
     space: base.weights.space,
     quality: base.weights.quality,
-    // 風水是物件層級的體檢，後端的行政區模型沒有對應維度。這個欄位漏掉的話
-    // weights.fengshui 會是 undefined，normalizeWeights 加總後整份權重變 NaN、排序全毀，
-    // 所以比照 space/quality 一律沿用 base —— 新增權重維度時這裡必須跟著補。
-    fengshui: base.weights.fengshui,
+    // 後端不拿風水排行政區，但會存 agent 從對話萃取出來的值，所以這一維要讀回來。
+    // 每個欄位都必須有值：漏掉會讓 weights.fengshui 變 undefined，normalizeWeights
+    // 加總後整份權重變 NaN、排序全毀 —— 新增權重維度時這裡必須跟著補。
+    fengshui: listing ? agentMoved(listing.fengshuiWeight, base.weights.fengshui) : base.weights.fengshui,
   }
 
   const hard: SearchProfile['hard'] = { ...base.hard }
   if (hardIn.cities?.length) hard.cities = hardIn.cities
   else delete hard.cities
+  // 我們每一輪都把 client 的值送上去，所以回來的空陣列代表「使用者/agent 取消了避開」，
+  // 而不是後端沒有這個概念 —— 直接刪掉欄位，別留一個空陣列讓 filter 誤以為有條件。
+  // listing 整個缺席才是「後端不認識這個欄位」，那種情況維持 base 不動。
+  if (listing) {
+    if (listing.avoidFengshui.length > 0) hard.avoidFengshui = [...listing.avoidFengshui]
+    else delete hard.avoidFengshui
+  }
   // The backend picked these by ranking, not by user constraint — they are the
   // 選區 step feeding the listing search.
   const picked = districts.slice(0, DISTRICT_FANOUT).map((d) => d.district)
