@@ -1,10 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ResultStrip } from '@/components/ListingCard/ResultStrip'
+import { ListingList } from '@/components/ListingList/ListingList'
 import { MapView } from '@/components/MapView/MapView'
 import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
-import { WeightPanel } from '@/components/WeightPanel/WeightPanel'
+import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
 import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
@@ -38,6 +38,8 @@ export function AgentApp() {
   // hoveredId（滑鼠移開就清）與 selectedId（點選後常駐，直到 ESC / 點空白 / 換結果）分開放，
   // 共用一個的話點選後滑鼠一移開卡片就消失，「常駐」就失效了。
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [listOpen, setListOpen] = useState(true)
 
   const profileRef = useRef<SearchProfile>(s.profile)
   profileRef.current = s.profile
@@ -246,6 +248,17 @@ export function AgentApp() {
             <div ref={chatBottom} />
           </div>
 
+          {/* 浮層向上開（bottom-full），要放在輸入表單上方——放下方會被視窗底部裁掉 */}
+          <div className="shrink-0 border-t border-neutral-200 px-3 py-2">
+            <WeightPopover
+              profile={s.profile}
+              onChange={s.setProfile}
+              highlighted={highlighted}
+              open={panelOpen}
+              onOpenChange={setPanelOpen}
+            />
+          </div>
+
           <form
             className="flex items-end gap-2 border-t border-neutral-200 px-3 py-2"
             onSubmit={(event) => { event.preventDefault(); void send(input) }}
@@ -271,10 +284,6 @@ export function AgentApp() {
               {chatting ? '…' : '送出'}
             </button>
           </form>
-
-          <div className="max-h-[42%] overflow-y-auto border-t border-neutral-200">
-            <WeightPanel profile={s.profile} onChange={s.setProfile} highlighted={highlighted} />
-          </div>
         </div>
       </aside>
 
@@ -312,18 +321,18 @@ export function AgentApp() {
             onSelect={setSelectedId}
           />
         </div>
-
-        {/* 不設固定高：由卡片內容撐開，地圖吃掉剩餘空間。 */}
-        <div className="shrink-0 border-t border-neutral-200 bg-neutral-100">
-          <ResultStrip
-            results={s.results}
-            hoveredId={s.hoveredId}
-            selectedId={selectedId}
-            onHover={s.setHoveredId}
-            onSelect={setSelectedId}
-          />
-        </div>
       </section>
+
+      {/* 右欄：可收納物件列表，取代原本吃掉地圖空間的底部橫向 strip */}
+      <ListingList
+        results={s.results}
+        hoveredId={s.hoveredId}
+        selectedId={selectedId}
+        onHover={s.setHoveredId}
+        onSelect={setSelectedId}
+        open={listOpen}
+        onToggle={() => setListOpen((v) => !v)}
+      />
     </main>
   )
 }
