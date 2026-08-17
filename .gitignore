@@ -5,8 +5,6 @@ next-env.d.ts
 **/data/*.db
 **/data/cache/
 .env.local
-test-results/
-playwright-report/
 .superpowers/
 
 # backend/

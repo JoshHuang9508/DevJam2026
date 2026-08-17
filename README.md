@@ -43,9 +43,6 @@ pnpm dev
 | 指令 | 說明 |
 | --- | --- |
 | `pnpm dev` | 開發伺服器 |
-| `pnpm test` | 單元測試 |
-| `pnpm e2e` | 端對端測試 |
-| `pnpm test:all` | 全部測試 |
 | `pnpm db:push` | 建立／更新資料庫 schema |
 | `pnpm db:seed` | 重新產生示範資料 |
 

@@ -11,11 +11,7 @@
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "db:migrate": "tsx src/database/migrate.ts",
-    "demo": "tsx scripts/acceptance-demo.ts",
-    "urban-plan:smoke": "tsx scripts/urban-plan-smoke.ts"
+    "db:migrate": "tsx src/database/migrate.ts"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "0.84.2",
@@ -37,8 +33,7 @@
     "@types/node": "^24.3.0",
     "@types/pg": "^8.15.5",
     "tsx": "^4.20.5",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "typescript": "^5.9.2"
   },
   "packageManager": "pnpm@10.29.2"
 }
