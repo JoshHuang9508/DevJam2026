@@ -127,7 +127,7 @@ export async function POST(request: Request): Promise<Response> {
         }
 
         if (!emittedResults) {
-          send('text', { delta: '這一輪沒有更新排序結果，你可以直接調整左邊的權重重新排序。' })
+          send('text', { delta: '\n\n這一輪沒有更新排序結果，你可以直接調整左邊的權重重新排序。' })
         }
         send('done', {})
       } catch (error) {
@@ -135,7 +135,7 @@ export async function POST(request: Request): Promise<Response> {
         send('error', {
           message: error instanceof BackendError
             ? error.message
-            : '推薦後端沒有回應，請確認 backend 的 pnpm dev 有在跑。你仍然可以直接調整權重來重新排序。',
+            : '伺服器連接錯誤。',
         })
         send('done', {})
       } finally {
