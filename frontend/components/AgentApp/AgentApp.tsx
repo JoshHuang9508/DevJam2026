@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListingDeck } from '@/components/ListingList/ListingDeck'
 import { ListingList } from '@/components/ListingList/ListingList'
 import { MapView } from '@/components/MapView/MapView'
-import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
 import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
 import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useIsMobile } from '@/hooks/useIsMobile'
@@ -15,7 +14,7 @@ import { parseSseChunk } from '@/lib/client/sseClient'
 import { parseProfile } from '@/lib/profile/schema'
 import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
-import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
+import type { SearchProfile, WeightKey } from '@/lib/types/profile'
 import { Entrance } from '@/components/AgentApp/Entrance'
 import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
 import { ChatIcon, MapIcon } from '@/components/AgentApp/TabIcons'
@@ -89,11 +88,6 @@ export function AgentApp() {
     if (skipNextRank.current) { skipNextRank.current = false; return }
     void s.rank(s.profile)
   }, [s.profile], RANK_DEBOUNCE_MS)
-
-  const setMode = (mode: Mode) => {
-    const { budgetMin: _min, budgetMax: _max, ...hard } = s.profile.hard
-    s.setProfile({ ...s.profile, mode, hard })
-  }
 
   const send = useCallback(async (text: string) => {
     const message = text.trim()
@@ -190,7 +184,7 @@ export function AgentApp() {
     <main className={`relative flex h-[100dvh] overflow-hidden bg-neutral-50 md:pb-0 ${started ? 'pb-[calc(3.25rem+env(safe-area-inset-bottom))]' : ''}`}>
       {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 移出無障礙樹並擋掉焦點/互動，
           aria-hidden 是 Playwright role 引擎實際讀取的屬性（inert 隱含 aria-hidden 但 Playwright
-          未實作這個推論）。兩者缺一都會讓開始後畫面上同時有兩個可被選取到的「買房」按鈕。 */}
+          未實作這個推論）。兩者缺一都會讓開始後入口的輸入框還能被焦點與選取器抓到。 */}
       <div
         inert={started}
         aria-hidden={started}
@@ -199,8 +193,6 @@ export function AgentApp() {
         } ${entranceFaded ? 'invisible' : ''}`}
       >
         <Entrance
-          mode={s.profile.mode}
-          onModeChange={setMode}
           onSubmit={(text) => void send(text)}
           disabled={chatting}
           statusLabel={runtimeLabel}
@@ -242,7 +234,6 @@ export function AgentApp() {
       >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
-          <ModeToggle mode={s.profile.mode} onChange={setMode} />
           <span
             className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] leading-none ${
               status?.backendUp ? 'bg-neutral-100 text-neutral-500' : 'bg-red-50 text-red-700'

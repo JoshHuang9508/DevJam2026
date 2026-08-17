@@ -1,13 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
 import { PLACEHOLDERS, PLACEHOLDER_ROTATE_MS } from '@/lib/client/placeholders'
-import type { Mode } from '@/lib/types/profile'
 
 interface Props {
-  mode: Mode
-  onModeChange: (m: Mode) => void
   onSubmit: (text: string) => void
   disabled: boolean
   /** 後端狀態文字，例如「pi-agent-core（LLM）」 */
@@ -15,7 +11,7 @@ interface Props {
   statusOk: boolean
 }
 
-export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, statusOk }: Props) {
+export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
   const [value, setValue] = useState('')
   const [index, setIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -44,11 +40,7 @@ export function Entrance({ mode, onModeChange, onSubmit, disabled, statusLabel, 
         用一句話描述你想要的生活，agent 會先選出適合的行政區，再從那些區裡挑物件
       </p>
 
-      <div className="mt-6 flex justify-center">
-        <ModeToggle mode={mode} onChange={onModeChange} />
-      </div>
-
-      <form onSubmit={submit} className="mt-4 flex gap-2">
+      <form onSubmit={submit} className="mt-6 flex gap-2">
         <input
           ref={inputRef}
           value={value}
