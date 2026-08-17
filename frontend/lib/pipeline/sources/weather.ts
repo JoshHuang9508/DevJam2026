@@ -22,49 +22,59 @@ export interface StationValue extends Point {
 /* ------------------------------------------------------------------ */
 
 const CWA_NORMALS = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/C-B0027-001'
+const CWA_STATIONS = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/C-B0074-001'
 
-/** 這是十年才換一版的氣候平均值，不是天氣預報。 */
+/**
+ * 1991-2020 氣候平均值。這是十年才換一版的統計值，不是天氣預報。
+ *
+ * 要打**兩支** API：C-B0027-001 只給 StationID 與統計值，**沒有經緯度**，
+ * 座標得從 C-B0074-001（測站基本資料）用 StationID join 回來。
+ * 少了這一步就沒辦法做最近測站配對。
+ */
 export async function fetchClimateStations(cacheDir: string, apiKey?: string): Promise<StationValue[]> {
   if (!apiKey) {
     log('climate', '沒有 CWA_API_KEY，略過氣候資料（欄位保持 null）')
     return []
   }
-  const url = `${CWA_NORMALS}?Authorization=${encodeURIComponent(apiKey)}&format=JSON`
-  const buffer = await fetchCached(url, `${cacheDir}/cwa-normals.json`, { maxAgeMs: 30 * 86400_000 })
-  const json = JSON.parse(new TextDecoder().decode(buffer)) as CwaResponse
+  const auth = `Authorization=${encodeURIComponent(apiKey)}&format=JSON`
 
-  // 這個 API 的 records 是 result 的**兄弟**不是子節點，照直覺寫 result.records 會拿到 undefined
+  const [normalsBuf, metaBuf] = await Promise.all([
+    fetchCached(`${CWA_NORMALS}?${auth}`, `${cacheDir}/cwa-normals.json`, { maxAgeMs: 30 * 86400_000 }),
+    fetchCached(`${CWA_STATIONS}?${auth}`, `${cacheDir}/cwa-stations.json`, { maxAgeMs: 30 * 86400_000 }),
+  ])
+
+  // 座標表。同一個 StationID 可能有已撤銷的舊站，後出現的不覆蓋先出現的有效站。
+  const coords = new Map<string, { lat: number; lng: number }>()
+  const metaJson = JSON.parse(new TextDecoder().decode(metaBuf)) as CwaStationMeta
+  for (const st of metaJson.records?.data?.stationStatus?.station ?? []) {
+    const lat = Number(st.StationLatitude)
+    const lng = Number(st.StationLongitude)
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
+    if (!coords.has(st.StationID)) coords.set(st.StationID, { lat, lng })
+  }
+
+  const json = JSON.parse(new TextDecoder().decode(normalsBuf)) as CwaNormals
+  // records 是 result 的**兄弟**不是子節點，照直覺寫 result.records 會拿到 undefined
   const locations = json.records?.data?.surfaceObs?.location ?? []
   const stations: StationValue[] = []
 
   for (const location of locations) {
-    const lat = Number(location.station?.StationLatitude)
-    const lng = Number(location.station?.StationLongitude)
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-    // 只留北台灣的測站，其他縣市的對這個 app 沒有用
-    if (lat < 24.5 || lat > 25.6 || lng < 121 || lng > 122.2) continue
+    const id = location.station?.StationID
+    const point = id ? coords.get(id) : undefined
+    if (!point) continue
 
-    const byElement = new Map<string, MonthlyEntry[]>()
-    for (const stat of location.stationObsStatistics ?? []) {
-      const name = stat.AirTemperature ? 'AirTemperature'
-        : stat.Precipitation ? 'Precipitation'
-          : stat.RelativeHumidity ? 'RelativeHumidity'
-            : stat.SunshineDuration ? 'SunshineDuration' : null
-      if (!name) continue
-      const monthly = (stat.AirTemperature ?? stat.Precipitation ?? stat.RelativeHumidity ?? stat.SunshineDuration)?.monthly
-      if (monthly) byElement.set(name, monthly)
-    }
-
-    const temps = byElement.get('AirTemperature') ?? []
-    const rain = byElement.get('Precipitation') ?? []
-    const humid = byElement.get('RelativeHumidity') ?? []
-    const sun = byElement.get('SunshineDuration') ?? []
+    // stationObsStatistics 是**物件**（依氣象要素當 key），不是陣列
+    const stats = location.stationObsStatistics ?? {}
+    const temps = stats.AirTemperature?.monthly ?? []
+    const rain = stats.Precipitation?.monthly ?? []
+    const humid = stats.RelativeHumidity?.monthly ?? []
+    const sun = stats.SunshineDuration?.monthly ?? []
+    if (temps.length === 0) continue
 
     stations.push({
-      lat,
-      lng,
+      ...point,
       annualTemp: mean(temps.map((m) => num(m.Mean))),
-      // 7-8 月與 1-2 月，用月份索引而不是找極值 —— 極值會挑到單一異常月。
+      // 7-8 月與 1-2 月用月份索引，不找極值 —— 極值會挑到單一異常月
       summerTemp: mean([temps[6], temps[7]].map((m) => num(m?.Mean))),
       winterTemp: mean([temps[0], temps[1]].map((m) => num(m?.Mean))),
       rainDays: sum(rain.map((m) => num(m.GE01Days))),
@@ -73,25 +83,34 @@ export async function fetchClimateStations(cacheDir: string, apiKey?: string): P
     })
   }
 
-  log('climate', `${stations.length} 個北台灣氣候測站（1991-2020 平均值）`)
+  log('climate', `${stations.length}/${locations.length} 個氣候測站（1991-2020 平均值，含座標）`)
   return stations
 }
 
-interface MonthlyEntry { Mean?: string | number; GE01Days?: string | number; Total?: string | number }
+interface MonthlyEntry { Month?: string; Mean?: string | number; GE01Days?: string | number; Total?: string | number }
 interface ElementBlock { monthly?: MonthlyEntry[] }
-interface CwaResponse {
+interface CwaNormals {
   records?: {
     data?: {
       surfaceObs?: {
         location?: {
-          station?: { StationLatitude?: string | number; StationLongitude?: string | number }
+          station?: { StationID?: string; StationName?: string }
           stationObsStatistics?: {
             AirTemperature?: ElementBlock
             Precipitation?: ElementBlock
             RelativeHumidity?: ElementBlock
             SunshineDuration?: ElementBlock
-          }[]
+          }
         }[]
+      }
+    }
+  }
+}
+interface CwaStationMeta {
+  records?: {
+    data?: {
+      stationStatus?: {
+        station?: { StationID: string; StationLatitude?: string | number; StationLongitude?: string | number }[]
       }
     }
   }
@@ -113,19 +132,23 @@ export async function fetchAqiStations(cacheDir: string, apiKey?: string): Promi
   const url = `${MOENV_AQI}?api_key=${encodeURIComponent(apiKey)}&limit=1000&format=JSON`
   // 逐時更新，但我們只要一個「大概多乾淨」的值，快取 6 小時就好
   const buffer = await fetchCached(url, `${cacheDir}/moenv-aqi.json`, { maxAgeMs: 6 * 3600_000 })
-  const json = JSON.parse(new TextDecoder().decode(buffer)) as { records?: Record<string, string>[] }
+  // 實測 format=JSON 回的是**頂層陣列**，不是 { records: [...] }。兩種都吃，
+  // 因為官方文件寫的是後者，哪天他們改回去也不會壞。
+  const json = JSON.parse(new TextDecoder().decode(buffer)) as
+    | Record<string, string>[]
+    | { records?: Record<string, string>[] }
+  const rows = Array.isArray(json) ? json : json.records ?? []
 
   const stations: AqiStation[] = []
-  for (const row of json.records ?? []) {
+  for (const row of rows) {
     // 文件寫的是 CamelCase（SiteName / Longitude），實際回的是小寫，且 pm2.5 帶一個真的點
     const lat = Number(row.latitude)
     const lng = Number(row.longitude)
     const aqi = Number(row.aqi)
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(aqi)) continue
-    if (lat < 24.5 || lat > 25.6 || lng < 121 || lng > 122.2) continue
     stations.push({ lat, lng, aqi })
   }
-  log('aqi', `${stations.length} 個北台灣空品測站`)
+  log('aqi', `${stations.length} 個空品測站（全台）`)
   return stations
 }
 
