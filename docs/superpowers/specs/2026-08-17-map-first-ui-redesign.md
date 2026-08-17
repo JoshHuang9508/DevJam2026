@@ -110,14 +110,22 @@ selectedId: string | null   // 點選後常駐，直到主動關閉
 | hover 右欄卡片 | 只讓對應圖示放大（既有行為），**不**開浮動卡片 |
 | 點地圖圖示 | `selectedId` = 該筆、`flyTo` 放大置中、卡片釘住 |
 | 點右欄卡片 | 同上 |
-| 點 cluster | 放大進該 cluster |
 | 點地圖空白 / ✕ / ESC | 清除 `selectedId` |
 
 hover 右欄卡片刻意不開浮動卡片：右欄那張卡已經是完整資訊，地圖上再開一張同樣內容的會變成兩張一樣的卡片。
 
 ### 4.2 卡片錨定機制
 
-圖示畫在 canvas，卡片是 DOM，不同座標系。每次相機變動用 `map.project([lng, lat])` 換算像素定位：
+**先講一個前提：地圖上沒有 cluster，圖示是 DOM `Marker` 不是 canvas 圖層。**
+`MapView` 已在先前改版中從 geojson source + circle layer 換成 DOM Marker，原因寫在該檔註解：
+maplibre 的 geojson source 一律在 web worker 切磚，而這個 Next/Turbopack 環境下 worker
+一建立就被關掉，source 永遠停在 loading —— `setData` 收得到資料、`fitBounds` 照跑，
+但一個點都畫不出來，且不拋任何錯誤。所以本規格不含任何 cluster 行為。
+
+卡片仍用 `map.project([lng, lat])` 定位，不改用 marker 的 `getBoundingClientRect()`：
+前者只依賴經緯度與相機狀態，後者依賴 DOM 佈局時序，在 marker 重建的那一幀會讀到舊位置。
+
+每次相機變動用 `map.project([lng, lat])` 換算像素定位：
 
 ```
 map.on('move') ─┐
@@ -154,9 +162,11 @@ map.flyTo({ center: [lng, lat], zoom: 15, duration: 600 })
 
 收納後不整個消失換成浮鈕 —— 留著「有 30 筆」的提示，使用者才不會忘記它存在。
 
-`ListingCard` 的結構與 breakdown 條狀圖不動，**但強調色要換** —— 它目前 hover 用 `border-blue-500`、
-breakdown 條用 `bg-blue-600`，那是被刪掉的 `/classic` 那套藍色。統一到 `neutral-900` 後才不會
-在黑色系介面裡冒出一條藍。這是本次唯一要動 `ListingCard` 的地方。
+`ListingCard` 與 `BreakdownBars` **完全不動** —— 它們已在先前改版中轉為 neutral
+（hover 是 `border-neutral-800`、breakdown 條是 `bg-neutral-700`）。
+
+唯一殘留的藍色在 `WeightPanel` 第 47 行，agent 調整權重時那個 `50 → 70` 徽章仍是
+`bg-blue-50` / `text-blue-700` / `ring-blue-200`。統一到 neutral 系。
 
 `ResultStrip`（橫向）由 `ListingList`（直向 + 收納）取代。
 
@@ -180,7 +190,23 @@ e2e 8 個測試全部指向 `/classic`，該頁即將刪除。`AgentApp` 目前 
 
 ### 8.2 重建
 
-e2e 對新 `/` 重寫。`AgentApp` 需補上 `data-testid`：`entrance`、`composer-input`、`composer-submit`、`chat-messages`、`map`、`listing-list`、`listing-card`、`weight-trigger`、`weight-panel`、`map-card`。
+e2e 對新 `/` 重寫。
+
+現有 `data-testid` 盤點：
+
+| testid | 位置 | 刪除後 |
+| --- | --- | --- |
+| `map` | `MapView` | 保留 |
+| `listing-card` | `ListingCard` | 保留 |
+| `weight-panel` | `WeightPanel` | 保留（移進浮動面板內） |
+| `district-strip` | `DistrictStrip` | 保留 |
+| `composer-input` / `composer-submit` | `components/Chat/Composer` | **隨刪除消失** |
+| `chat-messages` | `components/Chat/ChatPanel` | **隨刪除消失** |
+| `hard-constraints` | `components/HardConstraints` | **隨刪除消失** |
+
+`AgentApp` 自己的輸入框與訊息串目前沒有任何 testid。需新增：
+`entrance`、`composer-input`、`composer-submit`、`chat-messages`、
+`listing-list`、`listing-list-toggle`、`weight-trigger`、`map-card`。
 
 必測項目：
 
