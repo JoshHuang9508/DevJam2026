@@ -66,6 +66,11 @@ export interface ListingFeatures extends FengshuiEvidence {
 
   distToMainRoad: number | null
   distToRail: number | null
+
+  /** 500m 內近五年實際淹水災點數。0＝查過但沒有，null＝未檢測。 */
+  floodIncidents500: number | null
+  /** 土壤液化潛勢 1 低 / 2 中 / 3 高。僅臺北市有圖資。 */
+  liquefactionLevel: number | null
 }
 
 export type FeatureKey = keyof ListingFeatures

@@ -64,6 +64,12 @@ export const listingFeatures = sqliteTable('listing_features', {
   distToMainRoad: real('dist_to_main_road'),
   distToRail: real('dist_to_rail'),
 
+  // 災害。pipeline 一直有算，之前沒有欄位可放就丟掉了。
+  /** 500 公尺內近五年的實際淹水災點數（NCDR）。0 代表查過但附近沒有。 */
+  floodIncidents500: integer('flood_incidents_500'),
+  /** 土壤液化潛勢 1 低 / 2 中 / 3 高。只有臺北市有圖資，其餘為 null＝未檢測。 */
+  liquefactionLevel: integer('liquefaction_level'),
+
   // 風水證據欄位。屬性名必須與 FengshuiFeatureKey 逐字相同，loadPool 才能整包當 ListingFeatures 用。
   // 旗標刻意用 integer() 而非 { mode: 'boolean' } —— fillDataGaps 要對缺值算中位數，
   // 那是數值運算；一旦轉成 boolean 就補不了值，也算不出 0..1 的小數風險。

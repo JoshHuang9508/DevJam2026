@@ -253,10 +253,12 @@ export async function fetchFloodPoints(cacheDir: string): Promise<Point[]> {
     const y = Number(cells[yIndex])
     if (!Number.isFinite(x) || !Number.isFinite(y)) continue
     const point = twd97ToWgs84(x, y)
-    // 只留北台灣，順便當成座標轉換有沒有轉爛的健全性檢查
-    if (point.lat > 24.5 && point.lat < 25.5 && point.lng > 121 && point.lng < 122.2) points.push(point)
+    // 全台都要留。之前只留北北基，結果是高雄台南這些真的會淹的地方全部拿到 0 個災點，
+    // 在災害維度上變成「最安全」—— 那不是資料，是我自己的篩選造成的假象。
+    // 範圍檢查只當成座標轉換有沒有轉爛的健全性檢查。
+    if (point.lat > 21.5 && point.lat < 26.5 && point.lng > 118 && point.lng < 122.5) points.push(point)
   }
-  log('hazard', `${points.length} 個北北基淹水災點`)
+  log('hazard', `${points.length} 個全台淹水災點`)
   return points
 }
 

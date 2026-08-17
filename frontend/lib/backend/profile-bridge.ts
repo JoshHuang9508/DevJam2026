@@ -48,6 +48,7 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
     // 「取消避開」唯一能表達得出來的方式（後端沒有 null 清欄位的表示法）。
     listingPreferences: {
       fengshuiWeight: toWeight(w.fengshui),
+      hazardWeight: toWeight(w.hazard),
       avoidFengshui: profile.hard.avoidFengshui ?? [],
     },
   }
@@ -129,6 +130,9 @@ export function toSearchProfile(
     // 每個欄位都必須有值：漏掉會讓 weights.fengshui 變 undefined，normalizeWeights
     // 加總後整份權重變 NaN、排序全毀 —— 新增權重維度時這裡必須跟著補。
     fengshui: listing ? agentMoved(listing.fengshuiWeight, base.weights.fengshui) : base.weights.fengshui,
+    hazard: listing && typeof listing.hazardWeight === 'number'
+      ? agentMoved(listing.hazardWeight, base.weights.hazard)
+      : base.weights.hazard,
   }
 
   const hard: SearchProfile['hard'] = { ...base.hard }

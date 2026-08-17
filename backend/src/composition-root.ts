@@ -6,6 +6,8 @@ import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
 import { createListingsProvider } from "./providers/listings/index.js";
+import { createTwinkleClient } from "./providers/twinkle/index.js";
+import { createWebSearchProvider } from "./providers/websearch/index.js";
 import { createUrbanPlanProvider } from "./providers/urban-plan/index.js";
 import { AgentService } from "./services/agent.service.js";
 import { PreferenceService } from "./services/preference.service.js";
@@ -25,6 +27,13 @@ export async function createApplication(config: AppConfig) {
   });
   // 物件資料庫住在前端，這裡只借用它的排序端點（見 providers/listings）。
   const listings = createListingsProvider({ baseUrl: config.FRONTEND_URL, timeoutMs: config.LISTINGS_TIMEOUT_MS });
+  // 沒有金鑰就是 null，domain-tools 會整組跳過不註冊
+  const twinkle = config.TWINKLE_API_KEY
+    ? createTwinkleClient({ baseUrl: config.TWINKLE_MCP_URL, apiKey: config.TWINKLE_API_KEY, timeoutMs: config.TWINKLE_TIMEOUT_MS })
+    : null;
+  const webSearch = config.TAVILY_API_KEY
+    ? createWebSearchProvider({ apiKey: config.TAVILY_API_KEY, timeoutMs: config.WEB_SEARCH_TIMEOUT_MS })
+    : null;
   const preferences = new PreferenceService(sessions);
   const recommendations = new RecommendationService(sessions, providers);
   let runtime: AgentRuntime;
@@ -41,6 +50,8 @@ export async function createApplication(config: AppConfig) {
       providers,
       urbanPlan,
       listings,
+      twinkle,
+      webSearch,
       ...(selectedApiKey ? { apiKey: selectedApiKey } : {}),
       ...(config.PI_PROVIDER === "custom-openai" ? {
         custom: {
