@@ -16,6 +16,7 @@ import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
 import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
+import { Entrance } from '@/components/AgentApp/Entrance'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
@@ -151,9 +152,31 @@ export function AgentApp() {
     : status.agentRuntime === 'pi-agent-core' ? 'pi-agent-core（LLM）'
     : `${status.agentRuntime}（規則式）`
 
+  const started = messages.length > 0
+
   return (
-    <main className="flex h-screen bg-neutral-50">
-      <aside className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white">
+    <main className="relative flex h-screen overflow-hidden bg-neutral-50">
+      {/* 入口：未開始時置中；開始後淡出並上移，不卸載 */}
+      <div
+        className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
+          started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
+        }`}
+      >
+        <Entrance
+          mode={s.profile.mode}
+          onModeChange={setMode}
+          onSubmit={(text) => void send(text)}
+          disabled={chatting}
+          statusLabel={runtimeLabel}
+          statusOk={status?.backendUp ?? false}
+        />
+      </div>
+
+      <aside
+        className={`flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white transition-opacity duration-[240ms] ${
+          started ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
           <ModeToggle mode={s.profile.mode} onChange={setMode} />
@@ -172,7 +195,7 @@ export function AgentApp() {
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3" data-testid="chat-messages">
             {messages.length === 0 && (
               <div className="space-y-2">
                 <p className="text-[13px] leading-relaxed text-neutral-500">
@@ -237,7 +260,12 @@ export function AgentApp() {
         </div>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      {/* 中欄：地圖，從右滑入。永遠掛載，避免 MapLibre 重新初始化 */}
+      <section
+        className={`flex min-w-0 flex-1 flex-col transition-transform duration-[240ms] ease-out motion-reduce:transition-none ${
+          started ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         <DistrictStrip districts={districts} active={s.profile.hard.districts ?? []} />
 
         <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
