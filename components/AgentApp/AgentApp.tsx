@@ -156,9 +156,12 @@ export function AgentApp() {
 
   return (
     <main className="relative flex h-screen overflow-hidden bg-neutral-50">
-      {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 讓 started 後它退出無障礙樹與焦點順序 */}
+      {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 移出無障礙樹並擋掉焦點/互動，
+          aria-hidden 是 Playwright role 引擎實際讀取的屬性（inert 隱含 aria-hidden 但 Playwright
+          未實作這個推論）。兩者缺一都會讓開始後畫面上同時有兩個可被選取到的「買房」按鈕。 */}
       <div
         inert={started}
+        aria-hidden={started}
         className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         }`}
@@ -173,9 +176,11 @@ export function AgentApp() {
         />
       </div>
 
-      {/* 入口是不透明的 absolute inset-0，開始前已完全遮住這裡；不需要另外淡入，避免雙重表頭同時可見 */}
+      {/* 入口是不透明的 absolute inset-0，開始前已完全遮住這裡；不需要另外淡入，避免雙重表頭同時可見。
+          inert + aria-hidden 理由同上：未開始時把這一側移出無障礙樹（見上方入口區塊的註解）。 */}
       <aside
         inert={!started}
+        aria-hidden={!started}
         className="flex w-[380px] shrink-0 flex-col border-r border-neutral-200 bg-white"
       >
         <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
