@@ -4,14 +4,16 @@ import { ListingCard } from './ListingCard'
 interface Props {
   results: ScoredListing[]
   hoveredId: string | null
+  selectedId: string | null
   onHover: (id: string | null) => void
+  onSelect: (id: string | null) => void
 }
 
 /**
  * 高度由卡片內容決定，容器不設固定高 —— 先前寫死 h-64 (256px) 而卡片更高，
  * 標題與價格整排被裁掉。讓內容撐開就不會再有對不上的問題。
  */
-export function ResultStrip({ results, hoveredId, onHover }: Props) {
+export function ResultStrip({ results, hoveredId, selectedId, onHover, onSelect }: Props) {
   if (results.length === 0) {
     return (
       <div className="grid min-h-[7rem] place-items-center px-6 text-center">
@@ -35,7 +37,9 @@ export function ResultStrip({ results, hoveredId, onHover }: Props) {
             listing={r}
             rank={i + 1}
             hovered={r.id === hoveredId}
+            selected={r.id === selectedId}
             onHover={onHover}
+            onSelect={onSelect}
           />
         ))}
       </div>

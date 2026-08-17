@@ -35,6 +35,9 @@ export function AgentApp() {
   const [highlighted, setHighlighted] = useState<Partial<Record<WeightKey, { from: number; to: number }>>>({})
   const [input, setInput] = useState('')
   const [chatting, setChatting] = useState(false)
+  // hoveredId（滑鼠移開就清）與 selectedId（點選後常駐，直到 ESC / 點空白 / 換結果）分開放，
+  // 共用一個的話點選後滑鼠一移開卡片就消失，「常駐」就失效了。
+  const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const profileRef = useRef<SearchProfile>(s.profile)
   profileRef.current = s.profile
@@ -50,6 +53,15 @@ export function AgentApp() {
   }, [])
 
   useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  // 結果變動時清除選取：選中的物件可能已經不在新結果裡了
+  useEffect(() => { setSelectedId(null) }, [s.results])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedId(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Slider / mode path: pure scoring engine, no backend and no model call.
   useDebouncedEffect(() => {
@@ -292,12 +304,24 @@ export function AgentApp() {
         )}
 
         <div className="min-h-0 flex-1">
-          <MapView results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} onSelect={s.setHoveredId} />
+          <MapView
+            results={s.results}
+            hoveredId={s.hoveredId}
+            selectedId={selectedId}
+            onHover={s.setHoveredId}
+            onSelect={setSelectedId}
+          />
         </div>
 
         {/* 不設固定高：由卡片內容撐開，地圖吃掉剩餘空間。 */}
         <div className="shrink-0 border-t border-neutral-200 bg-neutral-100">
-          <ResultStrip results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} />
+          <ResultStrip
+            results={s.results}
+            hoveredId={s.hoveredId}
+            selectedId={selectedId}
+            onHover={s.setHoveredId}
+            onSelect={setSelectedId}
+          />
         </div>
       </section>
     </main>
