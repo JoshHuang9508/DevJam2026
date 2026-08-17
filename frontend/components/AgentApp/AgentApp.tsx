@@ -1,11 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { ListingDeck } from '@/components/ListingList/ListingDeck'
 import { ListingList } from '@/components/ListingList/ListingList'
 import { MapView } from '@/components/MapView/MapView'
 import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
 import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
 import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
 import type { Candidate } from '@/lib/backend/types'
@@ -18,6 +20,7 @@ import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
 import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
 import { Entrance } from '@/components/AgentApp/Entrance'
 import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
+import { ChatIcon, MapIcon } from '@/components/AgentApp/TabIcons'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
@@ -48,7 +51,8 @@ export function AgentApp() {
   const [panelOpen, setPanelOpen] = useState(false)
   const [listOpen, setListOpen] = useState(true)
   // md（768px）以下改單欄 + 分頁；桌面版忽略這個狀態，三欄照常並排。
-  const [mobileTab, setMobileTab] = useState<'chat' | 'map' | 'list'>('chat')
+  // 物件列表在行動版不是獨立分頁，而是併進地圖下半部的 ListingDeck。
+  const [mobileTab, setMobileTab] = useState<'chat' | 'map'>('chat')
   // 淡出動畫跑完才真正隱藏，見 ENTRANCE_FADE_MS 註解
   const [entranceFaded, setEntranceFaded] = useState(false)
 
@@ -186,9 +190,10 @@ export function AgentApp() {
     : `${status.agentRuntime}（規則式）`
 
   const started = messages.length > 0
+  const isMobile = useIsMobile()
 
   return (
-    <main className="relative flex h-screen overflow-hidden bg-neutral-50">
+    <main className={`relative flex h-[100dvh] overflow-hidden bg-neutral-50 md:pb-0 ${started ? 'pb-[calc(3.25rem+env(safe-area-inset-bottom))]' : ''}`}>
       {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 移出無障礙樹並擋掉焦點/互動，
           aria-hidden 是 Playwright role 引擎實際讀取的屬性（inert 隱含 aria-hidden 但 Playwright
           未實作這個推論）。兩者缺一都會讓開始後畫面上同時有兩個可被選取到的「買房」按鈕。 */}
@@ -209,20 +214,25 @@ export function AgentApp() {
         />
       </div>
 
-      {/* 行動版分頁列：只在對話已開始、且螢幕小於 md 時顯示。三欄在窄螢幕一次只顯示一個，
+      {/* 行動版分頁列：只在對話已開始、且螢幕小於 md 時顯示，固定在底部（拇指可及）。
+          main 的 pb-12 空出這條的高度，避免蓋住輸入框；三欄在窄螢幕一次只顯示一個，
           由 mobileTab 決定；桌面版（md 以上）三欄照常並排，這裡的狀態完全不影響桌面版。 */}
       {started && (
-        <nav className="absolute inset-x-0 top-0 z-30 flex border-b border-neutral-200 bg-white md:hidden" aria-label="檢視切換">
-          {([['chat', '對話'], ['map', '地圖'], ['list', '物件']] as const).map(([key, label]) => (
+        <nav
+          className="absolute inset-x-0 bottom-0 z-30 flex border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+          aria-label="檢視切換"
+        >
+          {([['chat', '對話', ChatIcon], ['map', '地圖與物件', MapIcon]] as const).map(([key, label, Icon]) => (
             <button
               key={key}
               type="button"
               onClick={() => setMobileTab(key)}
               aria-pressed={mobileTab === key}
-              className={`flex-1 py-2 text-sm font-medium ${
-                mobileTab === key ? 'border-b-2 border-neutral-900 text-neutral-900' : 'text-neutral-400'
+              className={`flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition ${
+                mobileTab === key ? 'border-t-2 border-neutral-900 text-neutral-900' : 'text-neutral-400'
               }`}
             >
+              <Icon className="h-[22px] w-[22px]" />
               {label}
             </button>
           ))}
@@ -362,14 +372,21 @@ export function AgentApp() {
             selectedId={selectedId}
             onHover={s.setHoveredId}
             onSelect={setSelectedId}
+            showCard={!isMobile}
           />
         </div>
+
+        {/* 行動版把物件併進地圖下半部：左右滑切上下一筆，切換時 selectedId 變動，
+            MapView 既有的選取動畫就會把相機帶到那一筆。 */}
+        {isMobile && (
+          <ListingDeck results={s.results} selectedId={selectedId} onSelect={setSelectedId} />
+        )}
       </section>
 
-      {/* 右欄：可收納物件列表，取代原本吃掉地圖空間的底部橫向 strip。
-          用 display:contents 的包裝層做行動版分頁切換，讓 ListingList 自己的根節點
-          在桌面版仍直接是 main 的 flex 子項，版面跟改動前完全一樣。 */}
-      <div className={`${mobileTab === 'list' ? 'contents' : 'hidden'} md:contents`}>
+      {/* 右欄：可收納物件列表，只在桌面版存在（行動版走 ListingDeck）。
+          包裝層用 display:contents，讓 ListingList 自己的根節點在桌面版仍直接是
+          main 的 flex 子項，版面跟改動前完全一樣。 */}
+      <div className="hidden md:contents">
         <ListingList
           results={s.results}
           hoveredId={s.hoveredId}

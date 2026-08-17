@@ -28,6 +28,8 @@ interface Props {
   selectedId: string | null
   onHover: (id: string | null) => void
   onSelect: (id: string | null) => void
+  /** 關掉浮動卡片。行動版下方的 ListingDeck 已經在顯示同一筆，浮層只會擋住地圖。 */
+  showCard?: boolean
 }
 
 type Libs = {
@@ -62,7 +64,7 @@ function loadLibs(): Promise<Libs> {
  * 目前一次最多 30 筆（lib/scoring 的 MAX_RESULTS），這個量級用 DOM 綽綽有餘；
  * 之後換成真實資料要做 cluster 時再改成 marker clusterer。
  */
-export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: Props) {
+export function MapView({ results, hoveredId, selectedId, onHover, onSelect, showCard = true }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -275,7 +277,7 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
   return (
     <div ref={containerRef} className="relative h-full w-full bg-neutral-200" data-testid="map">
       <div ref={mapDivRef} className="absolute inset-0" />
-      {shown && anchor && containerSize && (
+      {showCard && shown && anchor && containerSize && (
         <MapCard
           // 換一筆物件就重建，展開狀態才會回到收合；同一張卡片沿用會帶著上一筆的展開狀態
           key={shown.id}
