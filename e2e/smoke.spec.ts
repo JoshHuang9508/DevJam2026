@@ -83,6 +83,11 @@ test('卡片 hover 會標示為選中狀態', async ({ page }) => {
   const first = page.getByTestId('listing-card').first()
   await expect(first).toBeVisible()
   // hover 的邊框色跟著卡片改版換成 neutral-800（原本是 blue-500）
+  // 地圖點位改用 DOM Marker 之後是真的會觸發 mouseenter（先前 geojson source
+  // 卡在 loading，一個點都沒畫出來，滑鼠永遠碰不到）。fitBounds 之後很容易有
+  // marker 落在游標下，把對應卡片設成 hovered，這個前置斷言就會失敗。
+  // 先把游標移開地圖，讓「未 hover」是明確狀態而不是碰運氣。
+  await page.mouse.move(0, 0)
   await expect(first).not.toHaveClass(/border-neutral-800/)
 
   await first.hover()
