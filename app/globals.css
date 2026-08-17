@@ -4,3 +4,25 @@
 :root { color-scheme: light; }
 html, body { height: 100%; }
 body { @apply bg-neutral-50 text-neutral-900 antialiased; }
+
+/* 橫向卡片列與側欄的捲軸預設又粗又搶戲，收細一點才不會蓋過內容 */
+@supports (scrollbar-width: thin) {
+  .overflow-x-auto, .overflow-y-auto {
+    scrollbar-width: thin;
+    scrollbar-color: theme(--color-neutral-300) transparent;
+  }
+}
+.overflow-x-auto::-webkit-scrollbar,
+.overflow-y-auto::-webkit-scrollbar { height: 8px; width: 8px; }
+.overflow-x-auto::-webkit-scrollbar-track,
+.overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: theme(--color-neutral-300);
+  border-radius: 9999px;
+}
+.overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.overflow-y-auto::-webkit-scrollbar-thumb:hover { background: theme(--color-neutral-400); }
+
+/* MapLibre 的預設 attribution 在淺色底上偏重 */
+.maplibregl-ctrl-attrib { font-size: 10px; }

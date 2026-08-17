@@ -10,3 +10,10 @@ playwright-report/
 .superpowers/
 AGENTS.md
 CLAUDE.md
+
+# backend/
+.env
+dist/
+coverage/
+*.log
+.DS_Store

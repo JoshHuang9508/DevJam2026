@@ -3,15 +3,14 @@
 import { useEffect, useRef } from 'react'
 import {
   Map as MapLibreMapCtor,
+  Marker,
   NavigationControl,
   LngLatBounds,
-  type GeoJSONSource,
   type Map as MapLibreMap,
 } from 'maplibre-gl'
+import { scoreColor, scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_CENTER, DEFAULT_ZOOM, OSM_RASTER_STYLE } from './mapStyle'
-
-const SOURCE_ID = 'listings'
 
 interface Props {
   results: ScoredListing[]
@@ -20,27 +19,36 @@ interface Props {
   onSelect: (id: string) => void
 }
 
-// setFeatureState 只認 GeoJSON Feature 頂層的 id（number | string），不是 properties 裡的欄位。
-// 這裡以 results 陣列的 index 作為數值型 feature id，hover 時再用同一個 index 對應回去。
-function toGeoJson(results: ScoredListing[]) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: results.map((r, i) => ({
-      type: 'Feature' as const,
-      id: i,
-      geometry: { type: 'Point' as const, coordinates: [r.lng, r.lat] },
-      properties: { id: r.id, score: r.score, title: r.title },
-    })),
-  }
-}
-
+/**
+ * 點位用 DOM Marker，不用 geojson source + circle layer。
+ *
+ * 原因：maplibre 的 geojson source 一律在 web worker 裡切磚，而這個 Next/Turbopack
+ * 環境下 worker 一建立就被關掉，source 會永遠停在 loading —— setData 收得到資料、
+ * fitBounds 也照跑，但 querySourceFeatures 恆為 0，一個點都畫不出來，且不拋任何錯誤。
+ * DOM Marker 完全不經過 worker。目前一次最多 30 筆（lib/scoring 的 MAX_RESULTS），
+ * 這個量級用 DOM 綽綽有餘；之後換成真實資料要回到 cluster 圖層時，得先解決 worker。
+ */
 export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
-  const readyRef = useRef(false)
+  const markersRef = useRef<Map<string, { marker: Marker; el: HTMLButtonElement }>>(new Map())
+  const removalTimer = useRef<number | null>(null)
+  // 事件處理器放 ref，marker 才不需要因為 props 變動而重建
+  const onHoverRef = useRef(onHover)
+  const onSelectRef = useRef(onSelect)
+  onHoverRef.current = onHover
+  onSelectRef.current = onSelect
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    if (!containerRef.current) return
+
+    // StrictMode 會 mount → unmount → mount。立刻 map.remove() 會讓第二個 map
+    // 接手到被拆掉一半的狀態，因此延後銷毀，第二次 mount 直接沿用同一個 instance。
+    if (removalTimer.current !== null) {
+      clearTimeout(removalTimer.current)
+      removalTimer.current = null
+    }
+    if (mapRef.current) return
 
     const map = new MapLibreMapCtor({
       container: containerRef.current,
@@ -54,108 +62,66 @@ export function MapView({ results, hoveredId, onHover, onSelect }: Props) {
     // 圖磚載入失敗時降級為灰底，點位仍照常顯示
     map.on('error', (e) => { console.warn('[MapView] 地圖錯誤', e.error) })
 
-    map.on('load', () => {
-      map.addSource(SOURCE_ID, {
-        type: 'geojson',
-        data: toGeoJson([]),
-        cluster: true,
-        clusterRadius: 45,
-        clusterMaxZoom: 13,
-      })
-
-      map.addLayer({
-        id: 'clusters',
-        type: 'circle',
-        source: SOURCE_ID,
-        filter: ['has', 'point_count'],
-        paint: {
-          'circle-color': '#1e40af',
-          'circle-opacity': 0.85,
-          'circle-radius': ['step', ['get', 'point_count'], 16, 5, 22, 15, 28],
-        },
-      })
-      map.addLayer({
-        id: 'cluster-count',
-        type: 'symbol',
-        source: SOURCE_ID,
-        filter: ['has', 'point_count'],
-        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 },
-        paint: { 'text-color': '#ffffff' },
-      })
-      map.addLayer({
-        id: 'points',
-        type: 'circle',
-        source: SOURCE_ID,
-        filter: ['!', ['has', 'point_count']],
-        paint: {
-          // 分數越高越暖色
-          'circle-color': [
-            'interpolate', ['linear'], ['get', 'score'],
-            0, '#94a3b8', 0.5, '#f59e0b', 0.8, '#dc2626',
-          ],
-          'circle-radius': ['case', ['boolean', ['feature-state', 'hovered'], false], 12, 8],
-          'circle-stroke-width': 2,
-          'circle-stroke-color': '#ffffff',
-        },
-      })
-
-      map.on('mouseenter', 'points', (e) => {
-        map.getCanvas().style.cursor = 'pointer'
-        const id = e.features?.[0]?.properties?.id
-        if (typeof id === 'string') onHover(id)
-      })
-      map.on('mouseleave', 'points', () => {
-        map.getCanvas().style.cursor = ''
-        onHover(null)
-      })
-      map.on('click', 'points', (e) => {
-        const id = e.features?.[0]?.properties?.id
-        if (typeof id === 'string') onSelect(id)
-      })
-
-      readyRef.current = true
-    })
-
     return () => {
-      map.remove()
-      mapRef.current = null
-      readyRef.current = false
+      removalTimer.current = window.setTimeout(() => {
+        markersRef.current.forEach(({ marker }) => marker.remove())
+        markersRef.current.clear()
+        mapRef.current?.remove()
+        mapRef.current = null
+        removalTimer.current = null
+      }, 0)
     }
-    // onHover / onSelect 以 ref 之外的方式傳入會導致地圖重建，故刻意只在掛載時執行一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 結果更新 → 換資料並 fitBounds
+  // 結果更新 → 重建 marker 並 fitBounds
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
 
-    const apply = () => {
-      const source = map.getSource(SOURCE_ID) as GeoJSONSource | undefined
-      if (!source) return
-      source.setData(toGeoJson(results))
-      if (results.length === 0) return
-      const bounds = new LngLatBounds(
-        [results[0].lng, results[0].lat],
-        [results[0].lng, results[0].lat],
-      )
-      for (const r of results) bounds.extend([r.lng, r.lat])
-      map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
-    }
+    markersRef.current.forEach(({ marker }) => marker.remove())
+    markersRef.current.clear()
 
-    if (readyRef.current) apply()
-    else map.once('load', apply)
+    results.forEach((r, i) => {
+      const el = document.createElement('button')
+      el.type = 'button'
+      el.title = `${r.title}｜${scorePercent(r.score)} 分`
+      el.textContent = String(i + 1)
+      el.style.cssText = [
+        'display:grid', 'place-items:center', 'cursor:pointer', 'padding:0',
+        'font:600 11px/1 ui-sans-serif,system-ui,sans-serif', 'color:#fff',
+        'border:2px solid #fff', 'border-radius:9999px',
+        'box-shadow:0 1px 4px rgb(15 23 42 / .35)',
+        'transition:width .12s,height .12s,box-shadow .12s',
+      ].join(';')
+      el.addEventListener('mouseenter', () => onHoverRef.current(r.id))
+      el.addEventListener('mouseleave', () => onHoverRef.current(null))
+      el.addEventListener('click', () => onSelectRef.current(r.id))
+
+      const marker = new Marker({ element: el }).setLngLat([r.lng, r.lat]).addTo(map)
+      markersRef.current.set(r.id, { marker, el })
+    })
+
+    if (results.length === 0) return
+    const bounds = new LngLatBounds([results[0].lng, results[0].lat], [results[0].lng, results[0].lat])
+    for (const r of results) bounds.extend([r.lng, r.lat])
+    map.fitBounds(bounds, { padding: 60, maxZoom: 15, duration: 600 })
   }, [results])
 
-  // 卡片 hover → marker 放大（以 index 作為數值型 feature id，見 toGeoJson 註解）
+  // 卡片 hover ↔ marker 放大。就地改樣式，不重建 marker。
   useEffect(() => {
-    const map = mapRef.current
-    if (!map || !readyRef.current) return
     results.forEach((r, i) => {
-      map.setFeatureState(
-        { source: SOURCE_ID, id: i },
-        { hovered: r.id === hoveredId },
-      )
+      const entry = markersRef.current.get(r.id)
+      if (!entry) return
+      const active = r.id === hoveredId
+      const size = active ? 30 : i < 3 ? 24 : 20
+      entry.el.style.width = `${size}px`
+      entry.el.style.height = `${size}px`
+      entry.el.style.background = scoreColor(r.score)
+      entry.el.style.zIndex = active ? '10' : '1'
+      entry.el.style.boxShadow = active
+        ? '0 2px 10px rgb(15 23 42 / .45)'
+        : '0 1px 4px rgb(15 23 42 / .35)'
+      entry.el.style.opacity = hoveredId && !active ? '0.55' : '1'
     })
   }, [hoveredId, results])
 

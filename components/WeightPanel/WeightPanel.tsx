@@ -14,45 +14,48 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
   const setWeight = (key: WeightKey, value: number) => {
     onChange({ ...profile, weights: { ...profile.weights, [key]: value } })
   }
+  const isDefault = WEIGHT_KEYS.every((k) => profile.weights[k] === DEFAULT_PROFILE.weights[k])
 
   return (
-    <section className="border-t border-neutral-200 bg-white p-3" data-testid="weight-panel">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold">權重</h2>
+    <section className="bg-white px-4 py-3" data-testid="weight-panel">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-400">權重</h2>
         <button
           type="button"
+          disabled={isDefault}
           onClick={() => onChange({ ...profile, weights: { ...DEFAULT_PROFILE.weights } })}
-          className="text-xs text-neutral-500 underline hover:text-neutral-800"
+          className="text-[11px] text-neutral-400 transition hover:text-neutral-800 disabled:cursor-default disabled:opacity-40 disabled:hover:text-neutral-400"
         >
           重設
         </button>
       </div>
 
-      <ul className="space-y-2.5">
+      <ul className="space-y-3">
         {WEIGHT_KEYS.map((key) => {
           const change = highlighted[key]
+          const value = profile.weights[key]
           return (
             <li key={key}>
-              <div className="mb-1 flex items-baseline justify-between text-xs">
-                <span className="text-neutral-700">{WEIGHT_LABELS[key]}</span>
+              <div className="mb-1.5 flex items-baseline justify-between gap-2 text-xs leading-none">
+                <span className="text-neutral-600">{WEIGHT_LABELS[key]}</span>
                 {change ? (
-                  <span className="rounded bg-blue-100 px-1.5 py-0.5 font-medium text-blue-800 tabular-nums">
+                  <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-blue-700 ring-1 ring-inset ring-blue-200">
                     {change.from} → {change.to}
                   </span>
                 ) : (
-                  <span className="tabular-nums text-neutral-400">{profile.weights[key]}</span>
+                  <span className="tabular-nums text-neutral-400">{value}</span>
                 )}
               </div>
               <Slider.Root
-                className="relative flex h-4 w-full touch-none items-center"
-                value={[profile.weights[key]]}
+                className="group relative flex h-4 w-full touch-none items-center"
+                value={[value]}
                 min={0}
                 max={100}
                 step={1}
                 onValueChange={([v]) => setWeight(key, v)}
               >
-                <Slider.Track className="relative h-1 w-full grow rounded-full bg-neutral-200">
-                  <Slider.Range className="absolute h-full rounded-full bg-blue-600" />
+                <Slider.Track className="relative h-[3px] w-full grow overflow-hidden rounded-full bg-neutral-200">
+                  <Slider.Range className="absolute h-full rounded-full bg-neutral-800" />
                 </Slider.Track>
                 {/*
                   aria-label 必須放在 Thumb 上，不能放 Root。
@@ -63,7 +66,7 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                 */}
                 <Slider.Thumb
                   aria-label={WEIGHT_LABELS[key]}
-                  className="block h-3.5 w-3.5 rounded-full border-2 border-blue-600 bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+                  className="block h-3.5 w-3.5 rounded-full border border-neutral-300 bg-white shadow-sm transition group-hover:border-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-1"
                 />
               </Slider.Root>
             </li>

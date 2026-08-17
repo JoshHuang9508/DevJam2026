@@ -1,62 +1,9 @@
-'use client'
+import { AgentApp } from '@/components/AgentApp/AgentApp'
 
-import { useState } from 'react'
-import { MapView } from '@/components/MapView/MapView'
-import { ModeToggle } from '@/components/ModeToggle/ModeToggle'
-import { ResultStrip } from '@/components/ListingCard/ResultStrip'
-import { WeightPanel } from '@/components/WeightPanel/WeightPanel'
-import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
-import { useSearchState } from '@/hooks/useSearchState'
-import type { Mode, WeightKey } from '@/lib/types/profile'
-
-const RANK_DEBOUNCE_MS = 200
-
+/**
+ * 主畫面：對話（後端 Pi agent 選行政區）＋ 權重面板 ＋ 地圖 ＋ 物件卡片。
+ * 只用 lib/scoring 排序、不接對話的原版保留在 /classic。
+ */
 export default function Home() {
-  const s = useSearchState()
-  const [highlighted] = useState<Partial<Record<WeightKey, { from: number; to: number }>>>({})
-
-  // profile 任何變動（含 slider 拖動）都在 debounce 後重新排序；此路徑不呼叫 Gemini
-  useDebouncedEffect(() => { void s.rank(s.profile) }, [s.profile], RANK_DEBOUNCE_MS)
-
-  const setMode = (mode: Mode) => {
-    // 買賣與租賃的預算量級不同，切換時一併清掉
-    const { budgetMin: _min, budgetMax: _max, ...hard } = s.profile.hard
-    s.setProfile({ ...s.profile, mode, hard })
-  }
-
-  return (
-    <main className="flex h-screen">
-      <aside className="flex w-[360px] shrink-0 flex-col border-r border-neutral-200 bg-white">
-        <header className="flex items-center gap-3 border-b border-neutral-200 px-4 py-3">
-          <h1 className="text-base font-bold">安家</h1>
-          <ModeToggle mode={s.profile.mode} onChange={setMode} />
-        </header>
-        <div className="flex-1 overflow-y-auto">
-          <WeightPanel profile={s.profile} onChange={s.setProfile} highlighted={highlighted} />
-        </div>
-      </aside>
-
-      <section className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
-          <span className="text-neutral-500">找到 {s.results.length} 筆</span>
-          {s.loading && <span className="text-blue-600">排序中…</span>}
-          {s.error && <span className="text-red-600">{s.error}</span>}
-        </div>
-
-        {s.relaxations.length > 0 && (
-          <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-            為了找到結果，{s.relaxations.join('、')}
-          </p>
-        )}
-
-        <div className="min-h-0 flex-1">
-          <MapView results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} onSelect={s.setHoveredId} />
-        </div>
-
-        <div className="h-64 shrink-0 border-t border-neutral-200 bg-neutral-100">
-          <ResultStrip results={s.results} hoveredId={s.hoveredId} onHover={s.setHoveredId} />
-        </div>
-      </section>
-    </main>
-  )
+  return <AgentApp />
 }
