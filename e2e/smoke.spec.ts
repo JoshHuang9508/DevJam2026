@@ -82,10 +82,11 @@ test('卡片 hover 會標示為選中狀態', async ({ page }) => {
 
   const first = page.getByTestId('listing-card').first()
   await expect(first).toBeVisible()
-  await expect(first).not.toHaveClass(/border-blue-500/)
+  // hover 的邊框色跟著卡片改版換成 neutral-800（原本是 blue-500）
+  await expect(first).not.toHaveClass(/border-neutral-800/)
 
   await first.hover()
-  await expect(first).toHaveClass(/border-blue-500/)
+  await expect(first).toHaveClass(/border-neutral-800/)
 })
 
 test('hard 條件會顯示為可移除的 chip（escape hatch）', async ({ page }) => {
