@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildContents, parseFunctionCall } from './extract'
+import { buildContents, buildSystemInstruction, parseFunctionCall } from './extract'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
 import type { ChatMessage } from '@/lib/types/chat'
 
@@ -51,20 +51,28 @@ describe('parseFunctionCall', () => {
 
 describe('buildContents', () => {
   it('把對話轉成 Gemini 的 contents 格式', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '我想找台北的房子' }],
-      profile(),
-    )
+    const contents = buildContents([{ role: 'user', content: '我想找台北的房子' }])
     expect(contents.at(-1)?.role).toBe('user')
     expect(JSON.stringify(contents)).toContain('我想找台北的房子')
   })
 
   it('assistant 角色轉為 model', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '你好' }, { role: 'assistant', content: '哈囉' }, { role: 'user', content: '繼續' }],
-      profile(),
-    )
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '繼續' },
+    ])
     expect(contents[1].role).toBe('model')
+  })
+
+  it('最後一則永遠是使用者的話，不是合成的脈絡', () => {
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '我要三房' },
+    ])
+    expect(contents.at(-1)?.role).toBe('user')
+    expect(JSON.stringify(contents.at(-1))).toContain('我要三房')
   })
 
   it('只保留最近 6 輪對話', () => {
@@ -72,20 +80,36 @@ describe('buildContents', () => {
       role: i % 2 === 0 ? 'user' : 'assistant',
       content: `訊息${i}`,
     }))
-    const contents = buildContents(many, profile())
-    expect(contents.length).toBeLessThanOrEqual(13) // 12 則對話 + 1 則現況說明
+    const contents = buildContents(many)
+    expect(contents.length).toBeLessThanOrEqual(12)
     expect(JSON.stringify(contents)).not.toContain('訊息0')
   })
 
-  it('把目前的 profile 現況帶進去，讓模型知道要做增量', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '再便宜一點' }],
-      profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }),
-    )
-    expect(JSON.stringify(contents)).toContain('80')
+  it('contents 不含 profile 現況——那是 system instruction 的職責', () => {
+    const contents = buildContents([{ role: 'user', content: '再便宜一點' }])
+    expect(JSON.stringify(contents)).not.toContain('目前條件現況')
   })
 
-  it('空對話仍回傳含現況的 contents', () => {
-    expect(buildContents([], profile()).length).toBeGreaterThan(0)
+  it('空對話回空陣列', () => {
+    expect(buildContents([])).toEqual([])
+  })
+})
+
+describe('buildSystemInstruction', () => {
+  it('包含四條硬規則', () => {
+    const s = buildSystemInstruction(profile())
+    expect(s).toContain('增量，不重寫')
+    expect(s).toContain('hard 條件要保守')
+  })
+
+  it('帶入目前的權重，讓模型知道要做增量', () => {
+    const s = buildSystemInstruction(profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }))
+    expect(s).toContain('目前條件現況')
+    expect(s).toContain('80')
+  })
+
+  it('帶入既有的 hard 條件', () => {
+    const s = buildSystemInstruction(profile({ hard: { budgetMax: 1500 } }))
+    expect(s).toContain('1500')
   })
 })

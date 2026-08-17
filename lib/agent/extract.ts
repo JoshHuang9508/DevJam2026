@@ -16,29 +16,32 @@ export function parseFunctionCall(args: unknown): ProfileDelta {
   return parsed.success ? (parsed.data as ProfileDelta) : {}
 }
 
-export function buildContents(messages: ChatMessage[], profile: SearchProfile): Content[] {
-  const recent = messages.slice(-MAX_TURNS * 2)
-  const state: Content = {
-    role: 'user',
-    parts: [{
-      text: `［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］\n${JSON.stringify({
-        mode: profile.mode,
-        weights: profile.weights,
-        hard: profile.hard,
-        soft: profile.soft,
-      })}`,
-    }],
-  }
-  // 現況說明放在對話「之後」（緊鄰生成點），而非最前面：
-  // 一來讓每則真實對話的 index 不被現況區塊往後推一格，
-  // 二來越靠近生成點的內容對模型的影響力越大，正好對應「這是要做增量判斷的基準」這個用途。
+/**
+ * 目前的條件現況接在 system instruction 之後，**不進 contents**。
+ * 它是脈絡，不是任何人說過的話：放進對話序列的開頭會污染第一輪，
+ * 放結尾會讓模型最後看到的是一坨 JSON 而不是使用者的請求。
+ * 兩者都會讓萃取錨定到錯的東西，所以它屬於 system 層。
+ */
+export function buildSystemInstruction(profile: SearchProfile): string {
   return [
-    ...recent.map((m): Content => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
-    state,
-  ]
+    EXTRACT_SYSTEM_PROMPT,
+    '',
+    '［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］',
+    JSON.stringify({
+      mode: profile.mode,
+      weights: profile.weights,
+      hard: profile.hard,
+      soft: profile.soft,
+    }),
+  ].join('\n')
+}
+
+/** contents 只放真實對話，維持 user/model 交替，最後一則是使用者的話 */
+export function buildContents(messages: ChatMessage[]): Content[] {
+  return messages.slice(-MAX_TURNS * 2).map((m): Content => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
 }
 
 /** 呼叫 Gemini 萃取變動量。任何失敗都回空 delta，讓上層沿用原條件照樣排序。 */
@@ -46,12 +49,15 @@ export async function extractDelta(
   messages: ChatMessage[],
   profile: SearchProfile,
 ): Promise<ProfileDelta> {
+  // 沒有對話就沒有東西可萃取，直接省下一次 API 呼叫
+  if (messages.length === 0) return {}
+
   try {
     const response = await getGenAI().models.generateContent({
       model: getModel(),
-      contents: buildContents(messages, profile),
+      contents: buildContents(messages),
       config: {
-        systemInstruction: EXTRACT_SYSTEM_PROMPT,
+        systemInstruction: buildSystemInstruction(profile),
         temperature: 0,
         tools: [{ functionDeclarations: [UPDATE_PROFILE_DECLARATION] }],
         toolConfig: {
