@@ -1,0 +1,21 @@
+# 這些檔案一律以 LF 儲存與簽出，不受個人 core.autocrlf 影響。
+#
+# 為什麼重要：Windows 上 core.autocrlf=true 會把 CRLF 寫進 repo，
+# 而 Docker 對 CRLF 的 Dockerfile 處理很差（RUN 行尾的 \r 會被送進 shell），
+# GitHub Actions 的 `run: |` 區塊帶 CR 也會讓指令變成 `bad interpreter`。
+# 兩者失敗訊息都跟真正原因無關，極難追。
+
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# 二進位檔不要做任何轉換
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+*.db  binary
+*.node binary
