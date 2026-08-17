@@ -8,3 +8,5 @@ data/cache/
 test-results/
 playwright-report/
 .superpowers/
+AGENTS.md
+CLAUDE.md
