@@ -9,26 +9,15 @@ import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
 import type { Candidate } from '@/lib/backend/types'
+import { PLACEHOLDERS } from '@/lib/client/placeholders'
 import { parseProfile } from '@/lib/profile/schema'
+import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
 import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
 
 const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
-
-const EXAMPLES = [
-  '我在臺北上班，月租兩萬以內，走路就有捷運，生活機能要好',
-  '中南部，月租最高 18000，希望少雨而且生活方便',
-  '房租可以到 25000，但交通比生活機能重要',
-]
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  streaming?: boolean
-}
 
 interface Status {
   backendUp: boolean
@@ -197,7 +186,7 @@ export function AgentApp() {
                 <p className="text-[13px] leading-relaxed text-neutral-500">
                   用一句話描述你想要的生活。agent 會先選出適合的行政區，再從那些區裡挑物件。
                 </p>
-                {EXAMPLES.map((example) => (
+                {PLACEHOLDERS.map((example) => (
                   <button
                     key={example}
                     type="button"
