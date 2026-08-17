@@ -27,9 +27,39 @@ export const WEIGHT_LABELS: Record<WeightKey, string> = {
   fengshui: '風水',
 }
 
+export const REGIONS = ['北部', '中部', '南部', '東部', '離島'] as const
+export type Region = (typeof REGIONS)[number]
+
+/**
+ * 區域 → 縣市。使用者說「我要中部」時，硬條件必須能落到縣市層級才篩得動。
+ * 宜蘭歸北部（北北基宜的講法），與後端 fixture 的 region 標記一致。
+ */
+export const REGION_CITIES: Record<Region, string[]> = {
+  北部: ['臺北市', '新北市', '基隆市', '桃園市', '新竹市', '新竹縣', '宜蘭縣'],
+  中部: ['臺中市', '苗栗縣', '彰化縣', '南投縣', '雲林縣'],
+  南部: ['高雄市', '臺南市', '嘉義市', '嘉義縣', '屏東縣'],
+  東部: ['花蓮縣', '臺東縣'],
+  離島: ['澎湖縣', '金門縣', '連江縣'],
+}
+
+/** 「台北市」與「臺北市」是同一個地方，比對前一律正規化，否則使用者打「台」就篩不到。 */
+export function normalizeCity(name: string): string {
+  return name.replace(/台/g, '臺').trim()
+}
+
+export function citiesInRegions(regions: readonly Region[]): Set<string> {
+  const out = new Set<string>()
+  for (const r of regions) for (const c of REGION_CITIES[r] ?? []) out.add(c)
+  return out
+}
+
 export interface HardConstraints {
+  /** 使用者指定的區域（北部／中部…）。展開成縣市後與 cities 取交集。 */
+  regions?: Region[]
   cities?: string[]
   districts?: string[]
+  excludedCities?: string[]
+  excludedDistricts?: string[]
   budgetMin?: number
   budgetMax?: number
   minArea?: number

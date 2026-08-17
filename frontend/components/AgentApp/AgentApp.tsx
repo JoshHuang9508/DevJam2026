@@ -10,14 +10,12 @@ import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchState } from '@/hooks/useSearchState'
 import { weightDiff } from '@/lib/backend/profile-bridge'
-import type { Candidate } from '@/lib/backend/types'
 import { PLACEHOLDERS } from '@/lib/client/placeholders'
 import { parseSseChunk } from '@/lib/client/sseClient'
 import { parseProfile } from '@/lib/profile/schema'
 import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { Mode, SearchProfile, WeightKey } from '@/lib/types/profile'
-import { DistrictStrip } from '@/components/AgentApp/DistrictStrip'
 import { Entrance } from '@/components/AgentApp/Entrance'
 import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
 import { ChatIcon, MapIcon } from '@/components/AgentApp/TabIcons'
@@ -41,7 +39,6 @@ export function AgentApp() {
   const s = useSearchState()
   const [status, setStatus] = useState<Status | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [districts, setDistricts] = useState<Candidate[]>([])
   const [highlighted, setHighlighted] = useState<Partial<Record<WeightKey, { from: number; to: number }>>>({})
   const [input, setInput] = useState('')
   const [chatting, setChatting] = useState(false)
@@ -142,9 +139,6 @@ export function AgentApp() {
           switch (name) {
             case 'session':
               window.localStorage.setItem(SESSION_KEY, (data as { sessionId: string }).sessionId)
-              break
-            case 'districts':
-              setDistricts(data as Candidate[])
               break
             case 'profile': {
               const next = parseProfile(data)
@@ -346,7 +340,6 @@ export function AgentApp() {
           started ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        <DistrictStrip districts={districts} active={s.profile.hard.districts ?? []} />
 
         <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
           <span className="text-neutral-500">

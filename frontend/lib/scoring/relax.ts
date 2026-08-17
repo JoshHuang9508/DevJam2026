@@ -1,7 +1,30 @@
 import { FENGSHUI_RULE_BY_KEY } from '@/lib/fengshui/rules'
 import type { ListingWithFeatures, RankResult } from '@/lib/types/listing'
-import type { SearchProfile } from '@/lib/types/profile'
+import type { HardConstraints, SearchProfile } from '@/lib/types/profile'
 import { score, type ScoreOptions } from './index'
+
+/**
+ * 地區條件。**放寬階梯永遠不會動這幾個 key** —— 使用者說「我只要大安區」，
+ * 拿一堆信義區的物件給他不是「盡力而為」，是答非所問：地區是他用來
+ * 判斷「這則回答跟我有沒有關係」的第一個欄位，放寬掉等於偷換題目。
+ * 找不到就照實說找不到，由 agent 去建議換區，而不是系統靜靜換掉。
+ */
+const AREA_KEYS = ['regions', 'cities', 'districts', 'excludedCities', 'excludedDistricts'] as const
+type AreaKey = (typeof AREA_KEYS)[number]
+
+const pickArea = (h: HardConstraints): HardConstraints => {
+  const out: HardConstraints = {}
+  if (h.regions?.length) out.regions = h.regions
+  if (h.cities?.length) out.cities = h.cities
+  if (h.districts?.length) out.districts = h.districts
+  if (h.excludedCities?.length) out.excludedCities = h.excludedCities
+  if (h.excludedDistricts?.length) out.excludedDistricts = h.excludedDistricts
+  return out
+}
+
+/** 使用者是否指定過地區。決定找不到時要怎麼說。 */
+export const hasAreaConstraint = (h: HardConstraints): boolean =>
+  AREA_KEYS.some((key) => (h[key]?.length ?? 0) > 0)
 
 interface RelaxStep {
   /** 此步驟是否適用於目前的 profile */
@@ -66,20 +89,10 @@ const RELAX_STEPS: RelaxStep[] = [
     },
   },
   {
-    applies: (p) => (p.hard.districts?.length ?? 0) > 0,
-    apply: (p) => {
-      const { districts: _dropped, ...rest } = p.hard
-      return {
-        profile: { ...p, hard: rest },
-        message: '把範圍從指定行政區擴大到整個城市',
-      }
-    },
-  },
-  {
-    applies: (p) => Object.keys(p.hard).some((k) => k !== 'cities'),
+    applies: (p) => Object.keys(p.hard).some((k) => !AREA_KEYS.includes(k as AreaKey)),
     apply: (p) => ({
-      profile: { ...p, hard: p.hard.cities ? { cities: p.hard.cities } : {} },
-      message: '暫時拿掉其餘篩選條件，只保留地區',
+      profile: { ...p, hard: pickArea(p.hard) },
+      message: '暫時拿掉其餘篩選條件，只保留你指定的地區',
     }),
   },
 ]
@@ -110,6 +123,10 @@ export function rankWithRelaxation(
     if (score(current, pool).length > 0) return { results: score(current, pool, options), relaxations }
   }
 
-  relaxations.push('放寬所有條件後仍找不到符合的物件')
+  relaxations.push(
+    hasAreaConstraint(profile.hard)
+      ? '除了地區以外的條件都放寬過了，你指定的地區內仍然沒有符合的物件（地區不會自動放寬）'
+      : '放寬所有條件後仍找不到符合的物件',
+  )
   return { results: [], relaxations }
 }

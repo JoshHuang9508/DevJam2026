@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { FENGSHUI_RULES } from '@/lib/fengshui/rules'
 import type { FengshuiIssueKey } from '@/lib/types/fengshui'
-import { DEFAULT_PROFILE, WEIGHT_KEYS, type SearchProfile } from '@/lib/types/profile'
+import { DEFAULT_PROFILE, REGIONS, WEIGHT_KEYS, type Region, type SearchProfile } from '@/lib/types/profile'
 
 /** 台灣本島與離島的概略經緯度範圍，用來擋掉模型幻覺出的座標 */
 const TW_LAT = { min: 21.5, max: 26.5 }
@@ -9,9 +9,14 @@ const TW_LNG = { min: 118.0, max: 122.5 }
 
 const modeSchema = z.enum(['sale', 'rent'])
 
-/** 六個直轄市。模型或使用者輸入的城市若不在其中，視為幻覺值直接丟棄；
- *  行政區不做白名單過濾 —— 種子資料目前只涵蓋兩市的部分行政區，範圍會持續變動。 */
-export const MUNICIPALITIES = ['臺北市', '新北市', '桃園市', '臺中市', '臺南市', '高雄市'] as const
+/**
+ * 縣市名的形狀檢查，取代原本的六都白名單。
+ *
+ * 白名單在「地區是不可放寬的硬條件」之後變成 bug：使用者說「基隆市」會被靜靜丟掉，
+ * 於是他拿到一整份雙北的物件，還以為那就是基隆的行情 —— 正是這次要消滅的那種失敗。
+ * 形狀不對（模型幻覺出來的句子）仍然擋掉。
+ */
+const CITY_SHAPE = /^[一-鿿]{2,3}[市縣]$/
 
 /** 台→臺 正規化，避免「台北市」與種子資料的正式全形字「臺北市」被當成兩個不同城市 */
 function normalizeCityDistrict(s: string): string {
@@ -20,8 +25,18 @@ function normalizeCityDistrict(s: string): string {
 
 function normalizeCities(cities: string[] | undefined): string[] | undefined {
   if (!cities) return cities
-  const known: readonly string[] = MUNICIPALITIES
-  return cities.map(normalizeCityDistrict).filter((c) => known.includes(c))
+  return cities.map(normalizeCityDistrict).filter((c) => CITY_SHAPE.test(c))
+}
+
+function normalizeRegions(regions: string[] | undefined): Region[] | undefined {
+  const known: readonly string[] = REGIONS
+  return regions?.filter((r): r is Region => known.includes(r))
+}
+
+function normalizeRegionsNullable(
+  regions: string[] | null | undefined,
+): Region[] | null | undefined {
+  return regions == null ? regions : normalizeRegions(regions)
 }
 
 function normalizeDistricts(districts: string[] | undefined): string[] | undefined {
@@ -127,8 +142,11 @@ const weightsSchema = weightsShape
 const nonNegative = z.number().finite().transform((v) => Math.max(0, v))
 
 const hardSchema = z.object({
-  cities: z.array(z.string().min(1)).max(6).optional().transform(normalizeCities),
+  regions: z.array(z.string().min(1)).max(5).optional().transform(normalizeRegions),
+  cities: z.array(z.string().min(1)).max(22).optional().transform(normalizeCities),
   districts: z.array(z.string().min(1)).max(30).optional().transform(normalizeDistricts),
+  excludedCities: z.array(z.string().min(1)).max(22).optional().transform(normalizeCities),
+  excludedDistricts: z.array(z.string().min(1)).max(30).optional().transform(normalizeDistricts),
   budgetMin: nonNegative.optional(),
   budgetMax: nonNegative.optional(),
   minArea: nonNegative.optional(),
@@ -199,8 +217,11 @@ const weightsDeltaSchema = z.object({
 })
 
 const hardDeltaSchema = z.object({
-  cities: z.array(z.string().min(1)).max(6).nullable().optional().transform(normalizeCitiesNullable),
+  regions: z.array(z.string().min(1)).max(5).nullable().optional().transform(normalizeRegionsNullable),
+  cities: z.array(z.string().min(1)).max(22).nullable().optional().transform(normalizeCitiesNullable),
   districts: z.array(z.string().min(1)).max(30).nullable().optional().transform(normalizeDistrictsNullable),
+  excludedCities: z.array(z.string().min(1)).max(22).nullable().optional().transform(normalizeCitiesNullable),
+  excludedDistricts: z.array(z.string().min(1)).max(30).nullable().optional().transform(normalizeDistrictsNullable),
   budgetMin: nonNegative.nullable().optional(),
   budgetMax: nonNegative.nullable().optional(),
   minArea: nonNegative.nullable().optional(),

@@ -1,10 +1,28 @@
 import { FENGSHUI_HIT, ruleRisk } from '@/lib/fengshui/audit'
 import type { ListingWithFeatures } from '@/lib/types/listing'
-import type { SearchProfile } from '@/lib/types/profile'
+import { citiesInRegions, normalizeCity, type HardConstraints, type SearchProfile } from '@/lib/types/profile'
+
+/**
+ * 地區條件是否把這筆物件排除掉。抽出來是因為它同時是硬篩的一段，也是
+ * 「使用者指定的地區永遠不放寬」那條規則要單獨判斷的東西（見 relax.ts）。
+ *
+ * regions 與 cities 是**交集**：說了「北部」又說「臺北市」就是臺北市，
+ * 而不是整個北部。exclude 一律優先於 include。
+ */
+export function areaExcludes(l: { city: string; district: string }, h: HardConstraints): boolean {
+  const city = normalizeCity(l.city)
+  if (h.excludedCities?.length && h.excludedCities.map(normalizeCity).includes(city)) return true
+  if (h.excludedDistricts?.length && h.excludedDistricts.includes(l.district)) return true
+  if (h.regions?.length && !citiesInRegions(h.regions).has(city)) return true
+  if (h.cities?.length && !h.cities.map(normalizeCity).includes(city)) return true
+  if (h.districts?.length && !h.districts.includes(l.district)) return true
+  return false
+}
 
 /**
  * 硬性條件過濾。缺值一律**不排除** —
  * 資料不足不等於不合格，排除會讓結果無聲消失。
+ * 地區是唯一的例外，但它不靠缺值判斷：city/district 是必填欄位，沒有「不知道在哪一區」的物件。
  */
 export function applyHardFilter(
   pool: ListingWithFeatures[],
@@ -13,8 +31,7 @@ export function applyHardFilter(
   const h = p.hard
   return pool.filter((l) => {
     if (l.mode !== p.mode) return false
-    if (h.cities?.length && !h.cities.includes(l.city)) return false
-    if (h.districts?.length && !h.districts.includes(l.district)) return false
+    if (areaExcludes(l, h)) return false
     if (h.budgetMin !== undefined && l.price < h.budgetMin) return false
     if (h.budgetMax !== undefined && l.price > h.budgetMax) return false
     if (h.minArea !== undefined && l.area < h.minArea) return false

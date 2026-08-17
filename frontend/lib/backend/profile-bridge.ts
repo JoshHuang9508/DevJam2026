@@ -1,5 +1,5 @@
-import type { Candidate, PreferencePatch, PreferenceState } from './types'
-import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { PreferencePatch, PreferenceState } from './types'
+import { DEFAULT_PROFILE, REGIONS, normalizeCity, type Region, type SearchProfile } from '@/lib/types/profile'
 
 /**
  * Translates between the frontend's SearchProfile (listing-level, 7 axes) and the
@@ -21,9 +21,6 @@ import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
  * the only extractor left (the frontend Gemini path was removed in 7c5bdaf). The backend
  * stores both fengshui fields without scoring them — see backend listingPreferencesSchema.
  */
-
-/** How many of the backend's ranked districts feed the listing search. */
-export const DISTRICT_FANOUT = 6
 
 const clamp100 = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : Math.round(v))
 const toWeight = (v: number): number => Math.min(1, Math.max(0, Number((v / 100).toFixed(2))))
@@ -55,8 +52,16 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
     },
   }
 
-  const hard: NonNullable<PreferencePatch['hardConstraints']> = {}
-  if (profile.hard.cities?.length) hard.cities = profile.hard.cities
+  // 地區欄位一律送，包含空陣列 —— 與 avoidFengshui 同一個道理：deep-merge 對陣列是
+  // 整體覆寫，送空陣列是「使用者取消了指定地區」唯一表達得出來的方式。只在非空時送
+  // 的話，一旦設過就再也清不掉。
+  const hard: NonNullable<PreferencePatch['hardConstraints']> = {
+    regions: profile.hard.regions ?? [],
+    cities: profile.hard.cities ?? [],
+    districts: profile.hard.districts ?? [],
+    excludedCities: profile.hard.excludedCities ?? [],
+    excludedDistricts: profile.hard.excludedDistricts ?? [],
+  }
   // The backend only models monthly rent, so budgets are meaningless in sale mode
   // (萬元總價 vs 元月租 differ by orders of magnitude).
   if (profile.mode === 'rent') {
@@ -71,13 +76,16 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
 }
 
 /**
- * PreferenceState + the backend's district ranking -> SearchProfile.
+ * PreferenceState -> SearchProfile.
  * `base` is the client's current profile; anything the backend cannot express
  * (mode, 坪數/格局/屋況 weights and constraints, commute anchor) is carried over.
+ *
+ * 地區條件全部來自**使用者說過的話**（agent 用 update_preferences 寫進 hardConstraints），
+ * 不再有「引擎替他挑的行政區」這一層 —— 那會讓使用者分不出哪些區是自己要的、
+ * 哪些是系統塞的，而後者一旦被當成硬條件就等於系統偷偷替他縮小了範圍。
  */
 export function toSearchProfile(
   preferences: PreferenceState,
-  districts: Candidate[],
   base: SearchProfile = DEFAULT_PROFILE,
 ): SearchProfile {
   const soft = preferences.softPreferences
@@ -105,8 +113,19 @@ export function toSearchProfile(
   }
 
   const hard: SearchProfile['hard'] = { ...base.hard }
-  if (hardIn.cities?.length) hard.cities = hardIn.cities
-  else delete hard.cities
+  // 每一輪都把 client 的地區送上去，所以回來的空陣列代表「取消指定」而不是「後端沒這概念」。
+  const areaIn = {
+    regions: (hardIn.regions ?? []).filter((r): r is Region => (REGIONS as readonly string[]).includes(r)),
+    cities: (hardIn.cities ?? []).map(normalizeCity),
+    districts: hardIn.districts ?? [],
+    excludedCities: (hardIn.excludedCities ?? []).map(normalizeCity),
+    excludedDistricts: hardIn.excludedDistricts ?? [],
+  }
+  for (const key of Object.keys(areaIn) as Array<keyof typeof areaIn>) {
+    const value = areaIn[key]
+    if (value.length > 0) Object.assign(hard, { [key]: [...new Set(value)] })
+    else delete hard[key]
+  }
   // 我們每一輪都把 client 的值送上去，所以回來的空陣列代表「使用者/agent 取消了避開」，
   // 而不是後端沒有這個概念 —— 直接刪掉欄位，別留一個空陣列讓 filter 誤以為有條件。
   // listing 整個缺席才是「後端不認識這個欄位」，那種情況維持 base 不動。
@@ -114,22 +133,6 @@ export function toSearchProfile(
     if (listing.avoidFengshui.length > 0) hard.avoidFengshui = [...listing.avoidFengshui]
     else delete hard.avoidFengshui
   }
-  // The backend picked these by ranking, not by user constraint — they are the
-  // 選區 step feeding the listing search.
-  const top = districts.slice(0, DISTRICT_FANOUT)
-  const picked = top.map((d) => d.district)
-  if (picked.length > 0) {
-    hard.districts = [...new Set(picked)]
-    // 行政區名在全台不唯一 —— 大安區有臺北與臺中兩個、中正區有五個。
-    // 資料只涵蓋雙北時看不出來，擴到全台之後「大安區」會同時命中臺中的物件。
-    // 所以連同這些區所屬的縣市一起設成硬條件，把比對限縮在正確的縣市內。
-    // 使用者自己指定過 cities 時以使用者的為準，不覆蓋。
-    if (!hardIn.cities?.length) {
-      const cities = [...new Set(top.map((d) => d.city))]
-      if (cities.length > 0) hard.cities = cities
-    }
-  } else delete hard.districts
-
   if (base.mode === 'rent') {
     if (typeof hardIn.maxMonthlyRent === 'number') hard.budgetMax = hardIn.maxMonthlyRent
     if (typeof hardIn.minMonthlyRent === 'number') hard.budgetMin = hardIn.minMonthlyRent

@@ -58,7 +58,7 @@ export async function createApplication(config: AppConfig) {
     };
     runtime = new PiAgentRuntime(options);
   } else {
-    runtime = new DeterministicAgentRuntime(preferences, recommendations);
+    runtime = new DeterministicAgentRuntime(preferences);
   }
   const agent = new AgentService(sessions, runtime);
   return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, runtimeName: runtime.name });

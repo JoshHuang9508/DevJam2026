@@ -34,8 +34,6 @@ export class PiAgentRuntime implements AgentRuntime {
       turnId: input.turnId,
       sessions: this.options.sessions,
       preferences: this.options.preferences,
-      recommendations: this.options.recommendations,
-      providers: this.options.providers,
       urbanPlan: this.options.urbanPlan,
       listings: this.options.listings,
       publish: (event) => queue.push(event),

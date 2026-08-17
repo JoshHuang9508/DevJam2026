@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import { districtsWithListings, listingsDbAvailable } from '@/lib/backend/listings'
+import { areaCoverageNote, listingsDbAvailable } from '@/lib/backend/listings'
 import { toSearchProfile } from '@/lib/backend/profile-bridge'
 import { recallProfile } from '@/lib/backend/profile-cache'
-import type { Candidate, PreferenceState } from '@/lib/backend/types'
+import type { PreferenceState } from '@/lib/backend/types'
 import { loadPool } from '@/lib/db/client'
 import { rankWithRelaxation } from '@/lib/scoring/relax'
 import { DEFAULT_PROFILE, WEIGHT_KEYS, type Mode } from '@/lib/types/profile'
@@ -28,7 +28,6 @@ const DEFAULT_LIMIT = 8
 
 interface Body {
   preferences?: PreferenceState
-  districts?: Candidate[]
   mode?: Mode
   limit?: number
   /** 用來取回這個 session 的 client profile 當 base，讓 agent 的排名與畫面一致。 */
@@ -59,23 +58,12 @@ export async function POST(request: Request): Promise<Response> {
   const limit = Math.min(Math.max(Number(body.limit) || DEFAULT_LIMIT, 1), MAX_LIMIT)
 
   try {
-    const profile = toSearchProfile(body.preferences, body.districts ?? [], { ...base, mode })
+    const profile = toSearchProfile(body.preferences, { ...base, mode })
 
-    // 後端排的是全台 32 個 fixture 行政區，app.db 只有臺北／新北。沒有交集就整個
-    // 拿掉 districts 而不是硬篩到 0 筆 —— 否則 relaxation 會誤報「放寬預算」，
-    // 把真正的原因（那一區根本沒有物件）蓋掉。
-    const notes: string[] = []
-    if (profile.hard.districts?.length) {
-      const covered = districtsWithListings(mode)
-      const kept = profile.hard.districts.filter((d) => covered.has(d))
-      if (kept.length === 0) {
-        delete profile.hard.districts
-        notes.push('選出的行政區在物件資料庫中沒有任何物件，已改為不限行政區搜尋')
-      } else if (kept.length < profile.hard.districts.length) {
-        notes.push(`${profile.hard.districts.length - kept.length} 個行政區沒有物件資料，已排除`)
-        profile.hard.districts = kept
-      }
-    }
+    // 使用者指定的地區查不到就照實說，不再偷偷改成不限行政區 —— 那會讓 agent 拿著
+    // 一堆別區的物件去回答「大安區有什麼」，比回答查不到更糟。
+    const coverage = areaCoverageNote(mode, profile.hard)
+    const notes = coverage ? [coverage] : []
 
     const { results, relaxations } = rankWithRelaxation(profile, loadPool(mode, profile.hard.cities))
 
@@ -84,6 +72,8 @@ export async function POST(request: Request): Promise<Response> {
       total: results.length,
       relaxations: [...notes, ...relaxations],
       weights: profile.weights,
+      // agent 要能講出「我是在哪個範圍裡找的」，尤其是地區這種不會被放寬的條件
+      hardConstraints: profile.hard,
       // agent 需要知道排名是否用了畫面上的權重；miss 時它的名次可能與卡片略有出入
       profileBase: remembered ? 'session' : 'default',
       listings: results.slice(0, limit).map(project),

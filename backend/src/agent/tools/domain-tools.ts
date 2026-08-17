@@ -3,10 +3,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { preferencePatchSchema, type PreferencePatch } from "../../domain/preferences/schema.js";
 import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
 import { ListingsUnavailableError, type ListingsProvider } from "../../providers/listings/index.js";
-import type { ProviderRegistry } from "../../providers/types.js";
 import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
 import type { PreferenceService } from "../../services/preference.service.js";
-import type { RecommendationService } from "../../services/recommendation.service.js";
 import type { SessionService } from "../../services/session.service.js";
 import type { AgentEvent } from "../events.js";
 import { eventMeta } from "../events.js";
@@ -16,36 +14,23 @@ interface ToolDependencies {
   turnId: string;
   sessions: SessionService;
   preferences: PreferenceService;
-  recommendations: RecommendationService;
-  providers: ProviderRegistry;
   urbanPlan: UrbanPlanProvider;
   listings: ListingsProvider;
   publish: (event: AgentEvent) => void;
 }
 
+/**
+ * Agent 的工具集：**只剩物件資料集與都市計畫圖資**。
+ *
+ * 行政區推薦（search_locations / rank_candidates / get_candidate_detail 與五個
+ * fixture provider）已經移除。理由是它們回答的是「哪一區比較好」，而使用者問的是
+ * 「哪一間適合我」；那一層還會用 fixture 的區級統計去補話，講出來的數字跟畫面上
+ * 卡片依據的物件資料集根本不是同一份。現在唯一的事實來源是物件資料集本身。
+ */
 export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
   const textResult = (data: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(data) }], details: data });
-  const locationParams = Type.Object({ locationId: Type.String({ description: "Candidate administrative district id from search_locations" }) });
-  const resolveLocation = async (locationId: string, signal?: AbortSignal) => {
-    const location = await deps.providers.locations.get(locationId, signal);
-    if (!location) throw new Error(`Unknown Taiwan location id: ${locationId}`);
-    return location;
-  };
 
   return [
-    {
-      name: "search_locations", label: "搜尋台灣候選行政區", description: "依 persistent preference state 和 hard constraints 搜尋台灣縣市/鄉鎮市區候選。",
-      parameters: Type.Object({}),
-      execute: async (_id, _params, signal) => {
-        const session = await deps.sessions.get(deps.sessionId);
-        return textResult(await deps.providers.locations.search(session.preferences, signal));
-      },
-    },
-    providerTool("get_climate", "取得氣候", "取得行政區氣候 fixture/public provider 資料與 source metadata。", locationParams, async (id, signal) => deps.providers.climate.getClimate(await resolveLocation(id, signal), signal), textResult),
-    providerTool("get_housing", "取得租金", "取得行政區租金統計與 source metadata；不得當作即時房源。", locationParams, async (id, signal) => deps.providers.housing.getHousingStats(await resolveLocation(id, signal), signal), textResult),
-    providerTool("get_amenities", "取得生活機能", "取得行政區 POI 密度型生活機能資料。", locationParams, async (id, signal) => deps.providers.amenities.getAmenities(await resolveLocation(id, signal), signal), textResult),
-    providerTool("get_transport", "取得交通", "取得臺鐵、高鐵、捷運距離與公車密度資料。", locationParams, async (id, signal) => deps.providers.transport.getTransport(await resolveLocation(id, signal), signal), textResult),
-    providerTool("get_geography", "取得地理", "取得座標、海岸距離、海拔與都市密度 proxy。", locationParams, async (id, signal) => deps.providers.geography.getGeography(await resolveLocation(id, signal), signal), textResult),
     {
       name: "update_preferences", label: "更新偏好", description: "將使用者的 hard constraints 或 soft preference 變更寫入同一份 persistent state。patch 必須符合 PreferencePatch。",
       parameters: Type.Object({ patch: Type.Any({ description: PATCH_SHAPE }) }),
@@ -66,15 +51,26 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       },
     },
     {
-      name: "rank_candidates", label: "計算候選排名", description: "呼叫 deterministic recommendation engine。所有最終分數只能由此工具產生。",
-      parameters: Type.Object({ refreshData: Type.Optional(Type.Boolean({ description: "true to regenerate and hydrate candidates; defaults true" })) }),
-      executionMode: "sequential",
+      name: "describe_dataset",
+      label: "查詢物件資料集涵蓋範圍",
+      description:
+        "回傳物件資料集實際涵蓋哪些縣市與行政區、各有幾筆、價格與坪數中位數。" +
+        "被問到某個地方有沒有資料、或 rank_listings 回 0 筆時，**先呼叫這個**再回答：" +
+        "0 筆的原因是「條件太嚴」還是「資料集沒有那個地方」，給使用者的建議完全不同。",
+      parameters: Type.Object({
+        mode: Type.Optional(Type.String({ description: "sale（買賣）或 rent（租賃）。省略時為 sale。" })),
+      }),
       execute: async (_id, params, signal) => {
-        const { refreshData } = params as { refreshData?: boolean };
-        const candidates = refreshData === false ? await deps.recommendations.rerank(deps.sessionId) : await deps.recommendations.searchAndRank(deps.sessionId, signal);
-        deps.publish({ type: "candidates.updated", candidates, ...eventMeta(deps.turnId) });
-        deps.publish({ type: "ranking.updated", candidates, ...eventMeta(deps.turnId) });
-        return textResult(candidates);
+        const { mode } = params as { mode?: string };
+        if (mode !== undefined && mode !== "sale" && mode !== "rent") {
+          throw new Error(`mode 只接受 "sale" 或 "rent"；收到「${mode}」。`);
+        }
+        try {
+          return textResult(await deps.listings.describe(mode ?? "sale", signal));
+        } catch (error) {
+          if (error instanceof ListingsUnavailableError) return textResult({ error: error.message });
+          throw error;
+        }
       },
     },
     {
@@ -105,33 +101,19 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       },
     },
     {
-      name: "get_candidate_detail", label: "取得候選詳情", description: "取得單一已排名行政區的完整 raw data、來源、breakdown 與 data quality。",
-      parameters: locationParams,
-      execute: async (_id, params) => {
-        const { locationId } = params as { locationId: string };
-        const candidate = await deps.recommendations.getCandidate(deps.sessionId, locationId);
-        if (!candidate) throw new Error(`Candidate ${locationId} has not been ranked`);
-        return textResult(candidate);
-      },
-    },
-    {
       name: "rank_listings",
       label: "排名實際房屋物件",
       description:
-        "用目前的 preference state 對物件資料庫排名，回傳可以直接向使用者推薦的實際房屋物件（含地址、價格、坪數、格局、屋齡、分數與貢獻最大的三個維度）。" +
-        "這是回答「哪一間適合我」的唯一資料來源。分數由 deterministic scoring engine 產生，不得自行計算或改寫。" +
-        "先呼叫 rank_candidates 選出行政區可以讓結果集中在較適合的區域，但不是必要前置。",
+        "用目前的 preference state 對物件資料集排名，回傳可以直接向使用者推薦的實際房屋物件（含地址、價格、坪數、格局、屋齡、分數與貢獻最大的三個維度）。" +
+        "這是回答任何關於房子的問題的唯一資料來源。分數由 deterministic scoring engine 產生，不得自行計算或改寫。" +
+        "搜尋範圍完全由 preference state 的 hardConstraints 決定：使用者指定過地區的話，回傳的物件一定在那個地區內，" +
+        "而且找不到時也不會自動擴大範圍（回傳的 relaxations 會說明）。要改範圍就先呼叫 update_preferences。",
       parameters: Type.Object({
         mode: Type.Optional(Type.String({ description: "sale（買賣）或 rent（租賃）。省略時沿用預設。" })),
         limit: Type.Optional(Type.Number({ description: "回傳幾筆，1..20，預設 8。" })),
-        useRankedDistricts: Type.Optional(Type.Boolean({
-          description: "true（預設）時把已排名的前幾個行政區當成搜尋範圍；false 則不限行政區。",
-        })),
       }),
       execute: async (_id, params, signal) => {
-        const { mode, limit, useRankedDistricts } = params as {
-          mode?: string; limit?: number; useRankedDistricts?: boolean;
-        };
+        const { mode, limit } = params as { mode?: string; limit?: number };
         if (mode !== undefined && mode !== "sale" && mode !== "rent") {
           throw new Error(`mode 只接受 "sale" 或 "rent"；收到「${mode}」。`);
         }
@@ -140,7 +122,6 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
           const result = await deps.listings.rank({
             sessionId: deps.sessionId,
             preferences: session.preferences,
-            districts: useRankedDistricts === false ? [] : session.candidates,
             ...(mode ? { mode } : {}),
             ...(limit ? { limit } : {}),
             ...(signal ? { signal } : {}),
@@ -163,6 +144,8 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
 const PATCH_SHAPE = [
   "hardConstraints: regions[] (北部|中部|南部|東部|離島), cities[], districts[], excludedCities[], excludedDistricts[],",
   "minMonthlyRent, maxMonthlyRent, maxCommuteMinutes — all flat, never nested under housing/transportation.",
+  "cities 用完整名稱（臺北市、新北市），districts 用完整名稱（大安區）。regions 與 cities 同時給是取交集。",
+  "地區欄位是使用者說出口才填的硬條件，填了就一定生效、找不到也不會自動擴大；不要為了讓結果變多而自己塞。",
   "softPreferences.housing: weight, preferLowerRent.",
   "softPreferences.climate: weight, temperature{preferredMin,preferredMax,weight}, rainfall{preference:low|medium|high,weight}, humidity{preference,weight}.",
   "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
@@ -194,15 +177,4 @@ function unknownPatchPaths(patch: unknown): string[] {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function providerTool(
-  name: string,
-  label: string,
-  description: string,
-  parameters: ReturnType<typeof Type.Object>,
-  request: (locationId: string, signal?: AbortSignal) => Promise<unknown>,
-  textResult: (data: unknown) => { content: Array<{ type: "text"; text: string }>; details: unknown },
-): AgentTool<any> {
-  return { name, label, description, parameters, execute: async (_id, params, signal) => textResult(await request(String((params as { locationId: string }).locationId), signal)) };
 }
