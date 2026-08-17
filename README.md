@@ -13,7 +13,7 @@ cd backend && pnpm install && pnpm dev
 
 # 2. 前端
 pnpm install
-cp .env.example .env.local   # 需要 Gemini 路徑才要填 GEMINI_API_KEY
+cp .env.example .env.local
 mkdir data                   # drizzle-kit 不會自己建目錄
 pnpm db:push                 # 建立 SQLite schema
 pnpm db:seed                 # 灌入示範資料
@@ -27,11 +27,9 @@ pnpm dev
 | 路徑 | 內容 | agent | 排序 |
 | --- | --- | --- | --- |
 | `/` | 主畫面：對話、權重面板、選區、地圖、物件卡片 | `backend/` 的 Pi agent（九個 domain tools） | 後端選行政區 → `lib/scoring` 在那些區內排物件 |
-| `/classic` | Gemini 對話 + 權重面板 | Gemini（`lib/agent/`） | `lib/scoring` 直接對全池 |
 
-`/` 需要 `backend/` 有在跑；`/classic` 不需要，方便單獨驗證 scoring engine 與 Gemini 路徑。
-兩頁共用同一套 `SearchProfile`、`lib/scoring`、`components/`，localStorage 的 profile key
-也一樣，設定會延續。
+`/` 需要 `backend/` 有在跑；沒有它，對話與選區都無法運作。頁面用同一套
+`SearchProfile`、`lib/scoring`、`components/`，設定存在 localStorage 的 profile key 下。
 
 ## 指令
 
@@ -39,7 +37,7 @@ pnpm dev
 | --- | --- |
 | `pnpm dev` | 開發伺服器 |
 | `pnpm test` | 單元測試 |
-| `pnpm e2e` | 端對端測試（跑 `/classic`） |
+| `pnpm e2e` | 端對端測試 |
 | `pnpm test:all` | 全部測試 |
 | `pnpm db:push` | 建立／更新資料庫 schema |
 | `pnpm db:seed` | 重新產生示範資料 |
@@ -63,10 +61,10 @@ engine 產生，模型不編分數），前 6 個行政區才交給 `lib/scoring
 
 ## ⚠️ 尚未準備好上線部署
 
-這是本地展示用途的專案，**不要直接部署到公開網路**。`/api/chat`、`/api/rank`、`/api/agent/*`
+這是本地展示用途的專案，**不要直接部署到公開網路**。`/api/rank`、`/api/agent/*`
 與 `/api/backend/*` 都沒有身分驗證、沒有速率限制，`request.json()` 也沒有限制請求大小上限。
-`/api/chat` 每次請求會呼叫 Gemini 兩次（萃取一次、生成解釋文字一次）——公開曝露等於讓任何人
-都能免費消耗你的 API 額度與伺服器記憶體，形成成本與記憶體的阻斷服務風險。
+`/api/agent/chat` 每次請求都會呼叫後端 agent 的模型——公開曝露等於讓任何人都能免費消耗你的
+模型額度與伺服器記憶體，形成成本與記憶體的阻斷服務風險。
 
 `/api/backend/*` 尤其要注意：它是推薦後端的**無驗證全方法代理**，等於把 `backend/` 整個
 公開出去。它的存在只為了讓 cloudflare tunnel 這類單一入口的 demo 能運作，
