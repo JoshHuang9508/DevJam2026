@@ -3557,7 +3557,7 @@ export default function Home() {
 pnpm dev
 ```
 確認：
-- 拖動「房屋價位」到 100、其餘拉低 → 卡片重排為單價較低的物件，約 200ms 內完成
+- 拖動「房價可負擔」到 100、其餘拉低 → 卡片重排為單價較低的物件，約 200ms 內完成
 - 切到「租房」→ 結果換成租賃物件，價格顯示為「元/月」
 - 按「重設」→ 七條回到 50
 
@@ -4951,8 +4951,8 @@ test('拖動權重會改變結果順序', async ({ page }) => {
 
   const firstBefore = await page.getByTestId('listing-card').first().innerText()
 
-  // 把「房屋價位」拉到最高：聚焦該 slider 後用 End 鍵
-  const priceSlider = page.getByRole('slider', { name: '房屋價位' })
+  // 把「房價可負擔」拉到最高：聚焦該 slider 後用 End 鍵
+  const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
   await priceSlider.focus()
   await priceSlider.press('End')
 
@@ -4975,13 +4975,26 @@ test('權重面板的重設會把七個維度回到 50', async ({ page }) => {
   await page.getByTestId('composer-submit').click()
   await expect(page.getByTestId('weight-panel')).toBeVisible()
 
-  const priceSlider = page.getByRole('slider', { name: '房屋價位' })
+  const priceSlider = page.getByRole('slider', { name: '房價可負擔' })
   await priceSlider.focus()
   await priceSlider.press('End')
   await expect(priceSlider).toHaveAttribute('aria-valuenow', '100')
 
   await page.getByRole('button', { name: '重設' }).click()
-  await expect(priceSlider).toHaveAttribute('aria-valuenow', '50')
+
+  // 七個維度全部回到 50，不只被拖過的那一條
+  for (const label of ['房價可負擔', '同區性價比', '天氣環境', '地理位置', '生活機能', '坪數格局', '屋況條件']) {
+    await expect(page.getByRole('slider', { name: label })).toHaveAttribute('aria-valuenow', '50')
+  }
+})
+
+test('切換到租房後價格以元/月顯示', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: '租房' }).click()
+  await page.getByTestId('composer-input').fill('台北的房子')
+  await page.getByTestId('composer-submit').click()
+
+  await expect(page.getByTestId('listing-card').first()).toContainText('元/月')
 })
 
 test('卡片 hover 會標示為選中狀態', async ({ page }) => {
