@@ -94,12 +94,23 @@ export async function POST(request: Request): Promise<Response> {
 
         for await (const event of readAgentEvents(upstream.body!, request.signal)) {
           switch (event.type) {
-            // 條件一變就重排。以前是等 candidates.updated（選區完成）才排，
-            // 現在沒有選區那一步，preferences 就是唯一的觸發點。
+            // 條件一變就重排。這是 agent 沒呼叫 rank_listings 時的來源
+            // （例如它只更新了權重就直接回答）。
             case 'preferences.updated':
               emit(toSearchProfile(event.preferences, clientProfile))
               emittedResults = true
               break
+
+            // agent 真的排過物件時，用它**實際用的那份 profile** 覆蓋掉上面的推導結果。
+            // 兩者的差別是致命的：agent 解析出的 near 錨點（「靠近土城」）只存在於
+            // 這份 profile 裡，前端自己的 toSearchProfile 推不出來 —— 少了它，
+            // agent 在講土城而地圖上是全台的房子。
+            case 'listings.ranked': {
+              const effective = parseProfile(event.effectiveProfile)
+              emit(effective)
+              emittedResults = true
+              break
+            }
 
             case 'message.delta':
               sawText = true

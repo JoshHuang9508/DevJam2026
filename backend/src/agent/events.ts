@@ -21,6 +21,9 @@ export const agentEventSchema = z.discriminatedUnion("type", [
   eventBase.extend({ type: z.literal("preferences.updated"), preferences: preferenceStateSchema }),
   eventBase.extend({ type: z.literal("candidates.updated"), candidates: z.array(candidateSchema) }),
   eventBase.extend({ type: z.literal("ranking.updated"), candidates: z.array(candidateSchema) }),
+  // 物件排名完成。帶的是**實際用的 profile** 而不是結果本身：計分是確定性的，
+  // 前端拿同一份 profile 重算就會得到同一批物件，而 payload 只有 1 KB。
+  eventBase.extend({ type: z.literal("listings.ranked"), effectiveProfile: z.unknown(), total: z.number().int().nonnegative() }),
   eventBase.extend({ type: z.literal("error"), code: z.string(), message: z.string(), recoverable: z.boolean() }),
 ]);
 

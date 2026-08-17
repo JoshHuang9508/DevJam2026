@@ -44,6 +44,11 @@ export interface RankListingsResult {
   resolvedPlace?: { lat: number; lng: number; radiusKm: number; label: string } | null;
   /** 有指定地點但查不到時，原樣回傳讓 agent 照實說找不到。 */
   unresolvedPlace?: string;
+  /**
+   * 這一輪實際拿去計分的 SearchProfile（前端格式）。轉發給前端讓它用同一份重算，
+   * 兩邊的排名才會逐筆一致。內容對 LLM 沒有意義，所以不會進 tool result。
+   */
+  effectiveProfile?: unknown;
 }
 
 export interface RankListingsInput {

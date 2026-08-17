@@ -228,6 +228,9 @@ export type AgentEvent =
   | (EventBase & { type: 'preferences.updated'; preferences: PreferenceState })
   | (EventBase & { type: 'candidates.updated'; candidates: Candidate[] })
   | (EventBase & { type: 'ranking.updated'; candidates: Candidate[] })
+  // agent 的 rank_listings 排完了。帶的是**實際用的 profile** 而不是結果本身：
+  // 計分是確定性的，前端拿同一份重算就會得到同一批物件，payload 只有 1 KB。
+  | (EventBase & { type: 'listings.ranked'; effectiveProfile: unknown; total: number })
   | (EventBase & { type: 'error'; code: string; message: string; recoverable: boolean })
 
 export interface BackendHealth {

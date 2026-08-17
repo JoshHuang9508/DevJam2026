@@ -94,6 +94,11 @@ export async function POST(request: Request): Promise<Response> {
       weights: profile.weights,
       // agent 要能講出「我是在哪個範圍裡找的」，尤其是地區這種不會被放寬的條件
       hardConstraints: profile.hard,
+      // 這一輪**實際**拿去計分的 profile。後端會原樣轉發給前端，前端用同一份重算 ——
+      // 計分是確定性的，同樣的 profile + 同樣的池必然得出同樣的名次，所以只要輸入一致，
+      // agent 嘴上講的與畫面顯示的就保證是同一批。傳 profile（約 1 KB）而不是把
+      // 完整結果（50 筆約 120 KB）在兩個容器之間來回搬。
+      effectiveProfile: profile,
       // agent 需要知道排名是否用了畫面上的權重；miss 時它的名次可能與卡片略有出入
       profileBase: remembered ? 'session' : 'default',
       listings: results.slice(0, limit).map(project),

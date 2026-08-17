@@ -138,9 +138,20 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
             ...(nearPlace ? { near: { place: nearPlace, ...(nearRadiusKm ? { radiusKm: nearRadiusKm } : {}) } } : {}),
             ...(signal ? { signal } : {}),
           });
+          // 前端要用同一份 profile 重算，才能保證畫面與 agent 講的是同一批物件。
+          if (result.effectiveProfile) {
+            deps.publish({
+              type: "listings.ranked",
+              effectiveProfile: result.effectiveProfile,
+              total: result.total,
+              ...eventMeta(deps.turnId),
+            });
+          }
+          // effectiveProfile 對模型沒有意義，只會白白吃掉 context —— 不進 tool result。
+          const { effectiveProfile: _omit, ...forModel } = result;
           // 0 筆是常見且有意義的結果（條件太嚴），不是錯誤 —— 讓 agent 拿著
           // relaxations 去說明為什麼，而不是丟例外把整輪打斷。
-          return textResult(result);
+          return textResult(forModel);
         } catch (error) {
           if (error instanceof ListingsUnavailableError) {
             return textResult({ error: error.message, listings: [], total: 0, relaxations: [] });
