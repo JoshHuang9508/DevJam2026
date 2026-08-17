@@ -65,6 +65,10 @@ export function AgentApp() {
       .catch(() => setStatus({ backendUp: false, agentRuntime: null, listingsDb: false }))
   }, [])
 
+  // 對話本身沒有落地，重整後畫面一定是空的入口。舊的 sessionId 若留著，後端還記得上一輪的
+  // preference，使用者第一句話就會踩到看不見的既有條件。重整＝新 session。
+  useEffect(() => { window.localStorage.removeItem(SESSION_KEY) }, [])
+
   useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   // 結果變動時清除選取：選中的物件可能已經不在新結果裡了
@@ -83,8 +87,11 @@ export function AgentApp() {
     return () => window.clearTimeout(timer)
   }, [messages.length])
 
-  // Slider / mode path: pure scoring engine, no backend and no model call.
+  // Slider path: pure scoring engine, no backend and no model call.
+  // 對話開始前不排序 —— 掛載時就打一次 /api/rank 會在入口後面堆出一份沒人要求的結果，
+  // 使用者關掉入口才發現列表已經有東西。
   useDebouncedEffect(() => {
+    if (messages.length === 0) return
     if (skipNextRank.current) { skipNextRank.current = false; return }
     void s.rank(s.profile)
   }, [s.profile], RANK_DEBOUNCE_MS)

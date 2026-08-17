@@ -1,11 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { parseProfile } from '@/lib/profile/schema'
+import { useCallback, useRef, useState } from 'react'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
-
-const STORAGE_KEY = 'housing-agent.profile.v1'
 
 /**
  * 一次查幾筆。這是**全範圍**的前 N 名，與地圖視角無關 ——
@@ -13,17 +10,9 @@ const STORAGE_KEY = 'housing-agent.profile.v1'
  */
 const RESULT_LIMIT = 50
 
-function loadStoredProfile(): SearchProfile {
-  if (typeof window === 'undefined') return DEFAULT_PROFILE
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    return raw ? parseProfile(JSON.parse(raw)) : DEFAULT_PROFILE
-  } catch {
-    return DEFAULT_PROFILE
-  }
-}
-
 export function useSearchState() {
+  // 重整就是一次全新的搜尋：profile 不落地。留著它會讓重整後畫面回到入口、
+  // 列表卻還掛著上一輪的條件與結果，而使用者沒有任何線索知道那是哪來的。
   const [profile, setProfileState] = useState<SearchProfile>(DEFAULT_PROFILE)
   const [results, setResults] = useState<ScoredListing[]>([])
   const [relaxations, setRelaxations] = useState<string[]>([])
@@ -35,13 +24,7 @@ export function useSearchState() {
   // fitBounds 也就不會再跟使用者的相機互搶。
   const [fitToken, setFitToken] = useState(0)
 
-  // localStorage 只能在掛載後讀取，避免 SSR / CSR 內容不一致
-  useEffect(() => { setProfileState(loadStoredProfile()) }, [])
-
-  const setProfile = useCallback((next: SearchProfile) => {
-    setProfileState(next)
-    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* 無痕模式可忽略 */ }
-  }, [])
+  const setProfile = useCallback((next: SearchProfile) => { setProfileState(next) }, [])
 
   const rank = useCallback(async (target: SearchProfile) => {
     const seq = ++requestSeq.current
