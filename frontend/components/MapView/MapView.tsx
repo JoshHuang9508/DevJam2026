@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
-import { scoreColor, scorePercent } from '@/lib/client/score'
+import { rankColor, scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
-import { CARD_GAP, CARD_H, CARD_W, MapCard } from './MapCard'
+import { MapCard } from './MapCard'
 import {
   DEFAULT_CENTER,
   DEFAULT_ZOOM,
@@ -13,6 +13,12 @@ import {
   GOOGLE_MAPS_MAP_ID,
   MAX_FIT_ZOOM,
 } from './mapStyle'
+
+/** 圖示直徑（px）。前三名放大一階當視覺提示，hover／選取再放大一階。 */
+const MARKER_SIZE = { base: 32, top: 38, active: 46 } as const
+
+/** 名次越前面圖層越高：第 1 名拿到最大值，最後一名拿 1。 */
+const markerZIndex = (index: number, total: number) => total - index
 
 interface Props {
   results: ScoredListing[]
@@ -148,9 +154,9 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
       el.textContent = String(i + 1)
       el.style.cssText = [
         'display:grid', 'place-items:center', 'cursor:pointer', 'padding:0',
-        'font:600 11px/1 ui-sans-serif,system-ui,sans-serif', 'color:#fff',
-        'border:2px solid #fff', 'border-radius:9999px',
-        'box-shadow:0 1px 4px rgb(15 23 42 / .35)',
+        'font:700 14px/1 ui-sans-serif,system-ui,sans-serif', 'color:#fff',
+        'border:3px solid #fff', 'border-radius:9999px',
+        'box-shadow:0 2px 6px rgb(15 23 42 / .4)',
         'transition:width .12s,height .12s,box-shadow .12s',
         // AdvancedMarker 把 content 的底部中心對齊座標點，下移一半高度才會置中
         'transform:translateY(50%)',
@@ -164,6 +170,7 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
         content: el,
         title: el.title,
         gmpClickable: true,
+        zIndex: markerZIndex(i, results.length),
       })
       marker.addListener('gmp-click', () => onSelectRef.current(r.id))
       markersRef.current.set(r.id, { marker, el })
@@ -186,18 +193,21 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
     results.forEach((r, i) => {
       const entry = markersRef.current.get(r.id)
       if (!entry) return
-      const active = r.id === hoveredId
-      const size = active ? 30 : i < 3 ? 24 : 20
+      const active = r.id === hoveredId || r.id === selectedId
+      const size = active ? MARKER_SIZE.active : i < 3 ? MARKER_SIZE.top : MARKER_SIZE.base
       entry.el.style.width = `${size}px`
       entry.el.style.height = `${size}px`
-      entry.el.style.background = scoreColor(r.score)
-      entry.el.style.zIndex = active ? '10' : '1'
+      // 名次上色，不是分數上色：一批結果的分數常擠在很窄的區間，見 lib/client/score.ts
+      entry.el.style.background = rankColor(i, results.length)
+      // 疊放順序要設在 marker 上，不是 content 的 CSS z-index —— Google 把每個 marker
+      // 包在自己的圖層容器裡，content 的 z-index 只在那個容器內部有效，跨 marker 不生效。
+      entry.marker.zIndex = active ? results.length + 1 : markerZIndex(i, results.length)
       entry.el.style.boxShadow = active
-        ? '0 2px 10px rgb(15 23 42 / .45)'
-        : '0 1px 4px rgb(15 23 42 / .35)'
+        ? '0 3px 12px rgb(15 23 42 / .5)'
+        : '0 2px 6px rgb(15 23 42 / .4)'
       entry.el.style.opacity = hoveredId && !active ? '0.55' : '1'
     })
-  }, [hoveredId, results])
+  }, [hoveredId, selectedId, results])
 
   // 選取 → 放大置中
   useEffect(() => {
@@ -245,22 +255,21 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect }: P
     }
   }, [map, selectedId, hoveredId, results])
 
-  const shown = results.find((r) => r.id === (selectedId ?? hoveredId)) ?? null
-  const flipX = anchor !== null && containerSize !== null && anchor.x > containerSize.width - (CARD_W + CARD_GAP)
-  const flipY = anchor !== null && containerSize !== null && anchor.y > containerSize.height - (CARD_H + CARD_GAP)
+  const shownIndex = results.findIndex((r) => r.id === (selectedId ?? hoveredId))
+  const shown = shownIndex === -1 ? null : results[shownIndex]
 
   return (
     <div ref={containerRef} className="relative h-full w-full bg-neutral-200" data-testid="map">
       <div ref={mapDivRef} className="absolute inset-0" />
-      {shown && anchor && (
+      {shown && anchor && containerSize && (
         <MapCard
+          // 換一筆物件就重建，展開狀態才會回到收合；同一張卡片沿用會帶著上一筆的展開狀態
+          key={shown.id}
           listing={shown}
-          x={anchor.x}
-          y={anchor.y}
-          flipX={flipX}
-          flipY={flipY}
-          pinned={shown.id === selectedId}
-          onClose={() => onSelect(null)}
+          rank={shownIndex + 1}
+          anchor={anchor}
+          container={containerSize}
+          onHover={onHover}
         />
       )}
     </div>

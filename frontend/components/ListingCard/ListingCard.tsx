@@ -33,25 +33,27 @@ function extremes(listing: ScoredListing): { best: WeightKey; worst: WeightKey |
   return { best: sorted[0], worst: sorted.length > 1 ? sorted[sorted.length - 1] : null }
 }
 
-export function ListingCard({ listing, rank, hovered, selected, onHover, onSelect }: Props) {
+interface BodyProps {
+  listing: ScoredListing
+  rank: number
+  expanded: boolean
+  /**
+   * 有傳才畫「查看詳細資料」切換文字。列表卡片不傳（永遠展開），
+   * 地圖卡片傳，因為浮在地圖上的東西一開始就攤開整張評分表會蓋掉太多地圖。
+   */
+  onToggleExpanded?: () => void
+}
+
+/**
+ * 卡片內容本體，列表卡片與地圖卡片共用 —— 兩邊只差外框（列表是可點選的 article，
+ * 地圖是帶關閉鈕的浮層）與 expanded 預設值，內容一模一樣才不會有兩套要各自維護的排版。
+ */
+export function ListingCardBody({ listing, rank, expanded, onToggleExpanded }: BodyProps) {
   const f = listing.features
   const { best, worst } = extremes(listing)
 
   return (
-    <article
-      role="button"
-      tabIndex={0}
-      onMouseEnter={() => onHover(listing.id)}
-      onMouseLeave={() => onHover(null)}
-      onClick={() => onSelect(listing.id)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(listing.id) }
-      }}
-      data-testid="listing-card"
-      className={`w-[18.5rem] shrink-0 cursor-pointer rounded-lg border bg-white p-3 transition ${
-        selected ? 'border-neutral-900 ring-1 ring-neutral-900' : hovered ? 'border-neutral-800 shadow-md' : 'border-neutral-200'
-      }`}
-    >
+    <>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] text-neutral-500">#{rank} · {listing.city}{listing.district}</p>
@@ -76,34 +78,72 @@ export function ListingCard({ listing, rank, hovered, selected, onHover, onSelec
         {listing.floor}/{listing.totalFloor} 樓
       </p>
 
-      <dl className="mt-2 grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] text-neutral-600">
-        <Stat label="最近捷運" value={formatDistance(f.distToMetro)} />
-        <Stat label="通勤" value={formatCommute(f.commuteToCbdMin)} />
-        <Stat label="夏均溫" value={f.summerTemp === null ? '—' : `${f.summerTemp}°C`} />
-        <Stat label="年雨日" value={f.rainDays === null ? '—' : `${f.rainDays} 天`} />
-        <Stat label="超商" value={f.poiConvenience500 === null ? '—' : `${f.poiConvenience500} 間`} />
-        <Stat label="公園" value={f.poiPark500 === null ? '—' : `${f.poiPark500} 座`} />
-      </dl>
-
-      <div className="mt-2.5 space-y-1">
-        <BreakdownBars listing={listing} />
-      </div>
-
-      <p className="mt-2 text-[11px] leading-relaxed text-emerald-700">
-        ＋ {WEIGHT_LABELS[best]}表現較佳（{Math.round(listing.breakdown[best].subscore * 100)}）
-      </p>
-      {worst !== null && (
-        <p className="text-[11px] leading-relaxed text-amber-700">
-          − {WEIGHT_LABELS[worst]}相對弱（{Math.round(listing.breakdown[worst].subscore * 100)}）
-        </p>
+      {onToggleExpanded && (
+        <button
+          type="button"
+          // 卡片外框（地圖卡片沒有，但列表卡片整張都是 role="button"）不該吃到這一下
+          onClick={(event) => { event.stopPropagation(); onToggleExpanded() }}
+          aria-expanded={expanded}
+          data-testid="listing-detail-toggle"
+          className="mt-2 text-xs text-neutral-500 underline underline-offset-2 transition hover:text-neutral-900"
+        >
+          {expanded ? '收合詳細資料' : '查看詳細資料'}
+        </button>
       )}
-      <FengshuiCard listing={listing} />
 
-      {/* 風水也要逐項點名：FengshuiCard 的模擬聲明藏在 <details> 裡，收合狀態看不到 */}
-      <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
-        示範資料：價格、生活機能數量與風水格局證據皆為模擬值
-        {listing.dataGaps.length > 0 && '，部分欄位以同區中位數補值'}
-      </p>
+      {expanded && (
+        <>
+          <dl className="mt-2 grid grid-cols-3 gap-x-2 gap-y-1 text-[11px] text-neutral-600">
+            <Stat label="最近捷運" value={formatDistance(f.distToMetro)} />
+            <Stat label="通勤" value={formatCommute(f.commuteToCbdMin)} />
+            <Stat label="夏均溫" value={f.summerTemp === null ? '—' : `${f.summerTemp}°C`} />
+            <Stat label="年雨日" value={f.rainDays === null ? '—' : `${f.rainDays} 天`} />
+            <Stat label="超商" value={f.poiConvenience500 === null ? '—' : `${f.poiConvenience500} 間`} />
+            <Stat label="公園" value={f.poiPark500 === null ? '—' : `${f.poiPark500} 座`} />
+          </dl>
+
+          <div className="mt-2.5 space-y-1">
+            <BreakdownBars listing={listing} />
+          </div>
+
+          <p className="mt-2 text-[11px] leading-relaxed text-emerald-700">
+            ＋ {WEIGHT_LABELS[best]}表現較佳（{Math.round(listing.breakdown[best].subscore * 100)}）
+          </p>
+          {worst !== null && (
+            <p className="text-[11px] leading-relaxed text-amber-700">
+              − {WEIGHT_LABELS[worst]}相對弱（{Math.round(listing.breakdown[worst].subscore * 100)}）
+            </p>
+          )}
+          <FengshuiCard listing={listing} />
+
+          {/* 風水也要逐項點名：FengshuiCard 的模擬聲明藏在 <details> 裡，收合狀態看不到 */}
+          <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
+            示範資料：價格、生活機能數量與風水格局證據皆為模擬值
+            {listing.dataGaps.length > 0 && '，部分欄位以同區中位數補值'}
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
+export function ListingCard({ listing, rank, hovered, selected, onHover, onSelect }: Props) {
+  return (
+    <article
+      role="button"
+      tabIndex={0}
+      onMouseEnter={() => onHover(listing.id)}
+      onMouseLeave={() => onHover(null)}
+      onClick={() => onSelect(listing.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(listing.id) }
+      }}
+      data-testid="listing-card"
+      className={`w-[18.5rem] shrink-0 cursor-pointer rounded-lg border bg-white p-3 transition ${
+        selected ? 'border-neutral-900 ring-1 ring-neutral-900' : hovered ? 'border-neutral-800 shadow-md' : 'border-neutral-200'
+      }`}
+    >
+      <ListingCardBody listing={listing} rank={rank} expanded />
     </article>
   )
 }

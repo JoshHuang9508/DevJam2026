@@ -14,6 +14,7 @@ interface Props {
 }
 
 export function ListingList({ results, hoveredId, selectedId, onHover, onSelect, open, onToggle }: Props) {
+
   if (!open) {
     return (
       <button
