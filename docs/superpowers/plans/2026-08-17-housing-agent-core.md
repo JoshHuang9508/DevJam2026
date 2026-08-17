@@ -956,7 +956,8 @@ git commit -m "feat: 專案骨架、型別、SQLite schema 與確定性種子資
 - Consumes: Task 1 的 `ListingWithFeatures`、`ListingFeatures`、`SearchProfile`、`WeightKey`、`WEIGHT_KEYS`、`lib/geo.ts` 的 `estimateCommuteMinutes`
 - Produces:
   - `minMaxNormalize(values: number[]): number[]`
-  - `FilledListing { listing: ListingWithFeatures; features: ListingFeatures; dataGaps: string[] }`
+  - `FilledListing { listing: ListingWithFeatures; features: { [K in FeatureKey]: number }; dataGaps: string[] }`
+    （`features` 是**剝掉 null 的映射型別**，不是 `ListingFeatures` —— 填補後保證每個欄位都是 number）
   - `fillDataGaps(pool: ListingWithFeatures[]): FilledListing[]`
   - `DIMENSIONS: Record<WeightKey, (f: FilledListing, p: SearchProfile) => number>`（回傳值恆為「越高越好」的原始分數）
   - `makeListing(overrides?): ListingWithFeatures`、`makeFeatures(overrides?): ListingFeatures`
