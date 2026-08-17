@@ -23,8 +23,17 @@ export interface PlaceAnchor {
 /** 不同層級的預設半徑：講「土城」是想找那一區附近，講「高雄」是整個都會區。 */
 const DEFAULT_RADIUS = { district: 5, city: 20, region: 80 } as const
 
+/**
+ * 「靠近」「附近」這類修飾詞。prompt 已經要求 agent 只傳地名，但模型不一定照做，
+ * 而且使用者原話本來就長這樣。剝掉比要求模型完美更可靠。
+ */
+const PREFIXES = /^(靠近|鄰近|接近|近|在|位於|想找|要找)/
+const SUFFIXES = /(附近|周邊|周圍|一帶|旁邊|那邊|這邊|附近的|左右|方圓)$/
+
 export function resolvePlace(query: string, radiusKm?: number): PlaceAnchor | null {
-  const raw = query.normalize('NFKC').trim()
+  let raw = query.normalize('NFKC').trim()
+  // 兩邊各剝一次就夠：「靠近土城附近」這種疊字很少見，剝到空字串反而危險
+  raw = raw.replace(PREFIXES, '').replace(SUFFIXES, '').trim()
   if (!raw) return null
 
   // 1) 區域（北部／南部…）。這個不查表，直接用該區域所有縣市重心的平均。
