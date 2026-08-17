@@ -1551,6 +1551,7 @@ import { describe, expect, it } from 'vitest'
 import { applyHardFilter } from './filter'
 import { makeListing } from '@/lib/test-utils/factory'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -1890,6 +1891,7 @@ import { describe, expect, it } from 'vitest'
 import { rankWithRelaxation } from './relax'
 import { makeListing } from '@/lib/test-utils/factory'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -3595,7 +3597,8 @@ git commit -m "feat(ui): 權重面板即時重排與買賣／租賃切換"
   - `ChatMessage { role: 'user' | 'assistant'; content: string }`
   - `UPDATE_PROFILE_DECLARATION`（Gemini function declaration）
   - `parseFunctionCall(args: unknown): ProfileDelta`（純函式）
-  - `buildContents(messages: ChatMessage[], profile: SearchProfile)`（純函式）
+  - `buildContents(messages: ChatMessage[]): Content[]`（純函式，只放真實對話）
+  - `buildSystemInstruction(profile: SearchProfile): string`（純函式，system prompt + 條件現況）
   - `extractDelta(messages, profile): Promise<ProfileDelta>`（失敗回 `{}`，不拋錯）
   - `buildExplainPrompt(profile, results, relaxations): string`（純函式）
   - `streamExplanation(prompt): AsyncIterable<string>`
@@ -3739,8 +3742,9 @@ export const UPDATE_PROFILE_DECLARATION: FunctionDeclaration = {
 `lib/agent/extract.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest'
-import { buildContents, parseFunctionCall } from './extract'
+import { buildContents, buildSystemInstruction, parseFunctionCall } from './extract'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
+import type { ChatMessage } from '@/lib/types/chat'
 
 const profile = (o: Partial<SearchProfile> = {}): SearchProfile => ({ ...DEFAULT_PROFILE, ...o })
 
@@ -3790,42 +3794,66 @@ describe('parseFunctionCall', () => {
 
 describe('buildContents', () => {
   it('把對話轉成 Gemini 的 contents 格式', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '我想找台北的房子' }],
-      profile(),
-    )
+    const contents = buildContents([{ role: 'user', content: '我想找台北的房子' }])
     expect(contents.at(-1)?.role).toBe('user')
     expect(JSON.stringify(contents)).toContain('我想找台北的房子')
   })
 
   it('assistant 角色轉為 model', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '你好' }, { role: 'assistant', content: '哈囉' }, { role: 'user', content: '繼續' }],
-      profile(),
-    )
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '繼續' },
+    ])
     expect(contents[1].role).toBe('model')
   })
 
+  it('最後一則永遠是使用者的話，不是合成的脈絡', () => {
+    const contents = buildContents([
+      { role: 'user', content: '你好' },
+      { role: 'assistant', content: '哈囉' },
+      { role: 'user', content: '我要三房' },
+    ])
+    expect(contents.at(-1)?.role).toBe('user')
+    expect(JSON.stringify(contents.at(-1))).toContain('我要三房')
+  })
+
   it('只保留最近 6 輪對話', () => {
-    const many = Array.from({ length: 20 }, (_, i) => ({
-      role: (i % 2 === 0 ? 'user' : 'assistant') as const,
+    const many: ChatMessage[] = Array.from({ length: 20 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
       content: `訊息${i}`,
     }))
-    const contents = buildContents(many, profile())
-    expect(contents.length).toBeLessThanOrEqual(13) // 12 則對話 + 1 則現況說明
+    const contents = buildContents(many)
+    expect(contents.length).toBeLessThanOrEqual(12)
     expect(JSON.stringify(contents)).not.toContain('訊息0')
   })
 
-  it('把目前的 profile 現況帶進去，讓模型知道要做增量', () => {
-    const contents = buildContents(
-      [{ role: 'user', content: '再便宜一點' }],
-      profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }),
-    )
-    expect(JSON.stringify(contents)).toContain('80')
+  it('contents 不含 profile 現況——那是 system instruction 的職責', () => {
+    const contents = buildContents([{ role: 'user', content: '再便宜一點' }])
+    expect(JSON.stringify(contents)).not.toContain('目前條件現況')
   })
 
-  it('空對話仍回傳含現況的 contents', () => {
-    expect(buildContents([], profile()).length).toBeGreaterThan(0)
+  it('空對話回空陣列', () => {
+    expect(buildContents([])).toEqual([])
+  })
+})
+
+describe('buildSystemInstruction', () => {
+  it('包含四條硬規則', () => {
+    const s = buildSystemInstruction(profile())
+    expect(s).toContain('增量，不重寫')
+    expect(s).toContain('hard 條件要保守')
+  })
+
+  it('帶入目前的權重，讓模型知道要做增量', () => {
+    const s = buildSystemInstruction(profile({ weights: { ...DEFAULT_PROFILE.weights, price: 80 } }))
+    expect(s).toContain('目前條件現況')
+    expect(s).toContain('80')
+  })
+
+  it('帶入既有的 hard 條件', () => {
+    const s = buildSystemInstruction(profile({ hard: { budgetMax: 1500 } }))
+    expect(s).toContain('1500')
   })
 })
 ```
@@ -3879,26 +3907,32 @@ export function parseFunctionCall(args: unknown): ProfileDelta {
   return parsed.success ? (parsed.data as ProfileDelta) : {}
 }
 
-export function buildContents(messages: ChatMessage[], profile: SearchProfile): Content[] {
-  const recent = messages.slice(-MAX_TURNS * 2)
-  const state: Content = {
-    role: 'user',
-    parts: [{
-      text: `［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］\n${JSON.stringify({
-        mode: profile.mode,
-        weights: profile.weights,
-        hard: profile.hard,
-        soft: profile.soft,
-      })}`,
-    }],
-  }
+/**
+ * 目前的條件現況接在 system instruction 之後，**不進 contents**。
+ * 它是脈絡，不是任何人說過的話：放進對話序列的開頭會污染第一輪，
+ * 放結尾會讓模型最後看到的是一坨 JSON 而不是使用者的請求。
+ * 兩者都會讓萃取錨定到錯的東西，所以它屬於 system 層。
+ */
+export function buildSystemInstruction(profile: SearchProfile): string {
   return [
-    state,
-    ...recent.map((m): Content => ({
-      role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
-    })),
-  ]
+    EXTRACT_SYSTEM_PROMPT,
+    '',
+    '［目前條件現況，僅供你判斷要做哪些增量，不要重複設定］',
+    JSON.stringify({
+      mode: profile.mode,
+      weights: profile.weights,
+      hard: profile.hard,
+      soft: profile.soft,
+    }),
+  ].join('\n')
+}
+
+/** contents 只放真實對話，維持 user/model 交替，最後一則是使用者的話 */
+export function buildContents(messages: ChatMessage[]): Content[] {
+  return messages.slice(-MAX_TURNS * 2).map((m): Content => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }],
+  }))
 }
 
 /** 呼叫 Gemini 萃取變動量。任何失敗都回空 delta，讓上層沿用原條件照樣排序。 */
@@ -3906,12 +3940,14 @@ export async function extractDelta(
   messages: ChatMessage[],
   profile: SearchProfile,
 ): Promise<ProfileDelta> {
+  // 沒有對話就沒有東西可萃取，直接省下一次 API 呼叫
+  if (messages.length === 0) return {}
   try {
     const response = await getGenAI().models.generateContent({
       model: getModel(),
-      contents: buildContents(messages, profile),
+      contents: buildContents(messages),
       config: {
-        systemInstruction: EXTRACT_SYSTEM_PROMPT,
+        systemInstruction: buildSystemInstruction(profile),
         temperature: 0,
         tools: [{ functionDeclarations: [UPDATE_PROFILE_DECLARATION] }],
         toolConfig: {
