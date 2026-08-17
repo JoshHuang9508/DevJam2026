@@ -18,6 +18,9 @@
 - 所有面向使用者的文字為繁體中文
 - 配色統一 `neutral-900` 系，不得引入 `blue-*`
 - 每個 task 結束時 `pnpm test` 必須全綠，且 `pnpm exec tsc --noEmit` 必須無錯。**`vitest` 不做型別檢查**，測試綠不等於型別正確
+- **`backend/` 是獨立的 Node 專案**（自己的 `package.json`、Fastify、node ≥22.19），其相依套件不裝在根目錄。
+  根 `tsconfig.json` 的 `include: ["**/*.ts"]` 會把它掃進 Next 的型別檢查而產生 47 個假錯誤。
+  Task 1 會把它加進 `exclude`。在那之前，「`tsc` 乾淨」這個關卡是不可能達成的
 - **地圖上沒有 cluster。** 圖示是 DOM `Marker`；`MapView` 的檔頭註解說明了為什麼不能用 geojson source（worker 在此環境會被關掉，source 永遠 loading 且不拋錯）。任何「回到 cluster 圖層」的念頭都超出本計畫範圍
 - `lib/scoring/`、`lib/profile/`、`lib/db/`、`lib/backend/` 一律不動
 
@@ -118,7 +121,42 @@ test('主畫面可載入', async ({ page }) => {
 
 這是刻意的暫時佔位。Task 6 對新版面重建完整套件。留一個會過的最小測試，比留一整套指向已刪頁面的紅燈好判斷。
 
-- [ ] **Step 8: 驗證**
+- [ ] **Step 8: 把 `backend/` 排除在 Next 型別檢查之外**
+
+根 `tsconfig.json` 的 `include` 是 `**/*.ts`，會把 `backend/`（獨立 Node 專案、相依套件不在根目錄）
+一起掃進來，產生 47 個與本專案無關的錯誤，讓 `tsc --noEmit` 與 `pnpm build` 永遠是紅的。
+
+`tsconfig.json` 的 `exclude` 加上 `"backend"`：
+```json
+  "exclude": [
+    "node_modules",
+    "backend"
+  ]
+```
+
+`backend/` 有自己的 `tsconfig.json` 與建置流程，不受影響。
+
+- [ ] **Step 9: 移除已無人使用的 `@google/genai`**
+
+Gemini 路徑刪掉後，`package.json` 的 `@google/genai` 沒有任何程式碼引用了。
+
+```bash
+pnpm remove @google/genai
+```
+
+- [ ] **Step 10: README 的 `/classic` 與 Gemini 引用全面清乾淨**
+
+Step 6 只移除了「Gemini 路徑尚未經過品質驗證」那節。但 README 還有五處在描述已不存在的東西：
+
+- 快速開始的 `cp .env.example .env.local   # 需要 Gemini 路徑才要填 GEMINI_API_KEY` → 移除註解
+- 路由表裡 `/classic` 那一列 → 整列刪除
+- `` `/` 需要 `backend/` 有在跑；`/classic` 不需要… `` → 改寫成只講 `/`
+- 指令表 `` `pnpm e2e` | 端對端測試（跑 `/classic`） `` → 改為「端對端測試」
+- 安全章節提到 `/api/chat` 每次呼叫 Gemini 兩次 → 改為描述 `/api/agent/chat`
+
+留著會讓文件指向一個已經不存在的頁面。
+
+- [ ] **Step 11: 驗證**
 
 ```bash
 pnpm test
@@ -129,12 +167,15 @@ Expected: 測試全綠（`lib/agent` 的 21 個單元測試與 4 個 skip 消失
 
 若 `tsc` 報出任何殘留引用，那是 Step 1 的 grep 沒抓乾淨，回頭處理，不要用 `any` 或 `@ts-ignore` 壓下去。
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add -A
 git commit -m "refactor: 移除 Gemini 路徑與 /classic，例句與 ChatMessage 型別收斂"
 ```
+
+Expected（Step 11）: `pnpm test` 119 綠、`tsc --noEmit` **零錯誤**（排除 backend 之後）、`pnpm build` 成功。
+若 `tsc` 仍有錯，逐一判斷是不是 backend 以外的真問題，不要放寬 exclude 範圍去掩蓋。
 
 ---
 
