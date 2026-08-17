@@ -18,6 +18,7 @@ export default function Home() {
   const search = useSearchState()
   const chat = useChat(search)
   const [started, setStarted] = useState(false)
+  const [mobileTab, setMobileTab] = useState<'chat' | 'map'>('chat')
 
   // 手動調權重的第二條路徑：profile 變動後 debounce 重排，不呼叫 Gemini。
   //
@@ -69,8 +70,27 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-screen">
-      <aside className="flex w-[400px] shrink-0 flex-col border-r border-neutral-200 bg-white">
+    <main className="flex h-screen flex-col md:flex-row">
+      {/* 手機版分頁列，桌面隱藏 */}
+      <nav className="flex shrink-0 border-b border-neutral-200 bg-white md:hidden" aria-label="檢視切換">
+        {([['chat', '對話'], ['map', '結果']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setMobileTab(key)}
+            aria-pressed={mobileTab === key}
+            className={`flex-1 py-2 text-sm font-medium ${
+              mobileTab === key ? 'border-b-2 border-blue-600 text-blue-700' : 'text-neutral-500'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      <aside className={`flex min-h-0 flex-col border-neutral-200 bg-white md:flex md:w-[400px] md:shrink-0 md:border-r ${
+        mobileTab === 'chat' ? 'flex flex-1' : 'hidden'
+      }`}>
         <header className="flex items-center gap-3 border-b border-neutral-200 px-4 py-3">
           <h1 className="text-base font-bold">安家</h1>
           <ModeToggle mode={search.profile.mode} onChange={setMode} />
@@ -90,7 +110,9 @@ export default function Home() {
         </details>
       </aside>
 
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className={`min-w-0 flex-col md:flex md:flex-1 ${
+        mobileTab === 'map' ? 'flex flex-1' : 'hidden'
+      }`}>
         <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
           <span className="text-neutral-500">找到 {search.results.length} 筆</span>
           {search.loading && <span className="text-blue-600">排序中…</span>}
