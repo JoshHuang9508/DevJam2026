@@ -22,6 +22,29 @@ jobs:
       github.event.workflow_run.conclusion == 'success'
     environment: production
     steps:
+      # 沒有這一步的話，缺 secret 會變成 ssh 印一大段 usage 然後 exit 255，
+      # 完全看不出真正原因。
+      - name: 檢查必要的 secret
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          USER: ${{ secrets.DEPLOY_USER }}
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN: ${{ secrets.DEPLOY_SSH_KNOWN_HOSTS }}
+          ORIGIN: ${{ secrets.PUBLIC_ORIGIN }}
+        run: |
+          missing=""
+          [ -n "$HOST" ]   || missing="$missing DEPLOY_HOST"
+          [ -n "$USER" ]   || missing="$missing DEPLOY_USER"
+          [ -n "$KEY" ]    || missing="$missing DEPLOY_SSH_KEY"
+          [ -n "$KNOWN" ]  || missing="$missing DEPLOY_SSH_KNOWN_HOSTS"
+          [ -n "$ORIGIN" ] || missing="$missing PUBLIC_ORIGIN"
+          if [ -n "$missing" ]; then
+            echo "::error::尚未設定這些 secret:$missing"
+            echo "設定方式見 deploy/README.md 的「讓 CI/CD 能自動部署」。"
+            exit 1
+          fi
+          echo "secret 齊全，開始部署到 $USER@$HOST"
+
       - name: 設定 SSH
         run: |
           mkdir -p ~/.ssh
