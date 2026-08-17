@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
 import { rankColor, scorePercent } from '@/lib/client/score'
+import type { MapBounds } from '@/lib/scoring'
 import type { ScoredListing } from '@/lib/types/listing'
 import { animateCamera } from './animateCamera'
 import { MapCard } from './MapCard'
@@ -30,6 +31,10 @@ interface Props {
   onSelect: (id: string | null) => void
   /** 關掉浮動卡片。行動版下方的 ListingDeck 已經在顯示同一筆，浮層只會擋住地圖。 */
   showCard?: boolean
+  /** 遞增時把相機帶到結果上。只有「新的搜尋」該遞增，拖地圖不該。 */
+  fitToken?: number
+  /** 視角停下來時回報，供上層依視角重新取結果。 */
+  onBoundsChange?: (bounds: MapBounds) => void
 }
 
 type Libs = {
@@ -64,7 +69,10 @@ function loadLibs(): Promise<Libs> {
  * 目前一次最多 100 筆（lib/scoring 的 MAX_RESULTS），這個量級用 DOM 還撐得住；
  * 再往上（或哪天顯示整個候選池）就要換成 marker clusterer。
  */
-export function MapView({ results, hoveredId, selectedId, onHover, onSelect, showCard = true }: Props) {
+export function MapView({
+  results, hoveredId, selectedId, onHover, onSelect, showCard = true,
+  fitToken = 0, onBoundsChange,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapDivRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -154,7 +162,8 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect, sho
     }
   }, [])
 
-  // 結果更新 → 重建 marker 並 fitBounds
+  // 結果更新 → 只重建 marker。相機由下一個 effect 依 fitToken 決定，
+  // 兩件事必須分開：使用者拖地圖會換一批結果，那時候動相機就會把他拖走。
   useEffect(() => {
     const libs = libsRef.current
     if (!map || !libs) return
@@ -191,7 +200,17 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect, sho
       markersRef.current.set(r.id, { marker, el })
     })
 
+  }, [map, results])
+
+  // 新的搜尋才把相機帶到結果上。fitToken 由 useSearchState 在「非視角觸發」的
+  // 查詢後遞增；視角觸發的查詢不會動它，相機因此留在使用者放的位置。
+  const lastFit = useRef(0)
+  useEffect(() => {
+    const libs = libsRef.current
+    if (!map || !libs || fitToken === lastFit.current) return
+    lastFit.current = fitToken
     if (results.length === 0) return
+
     const bounds = new libs.LatLngBounds()
     for (const r of results) bounds.extend({ lat: r.lat, lng: r.lng })
     map.fitBounds(bounds, FIT_PADDING)
@@ -201,7 +220,23 @@ export function MapView({ results, hoveredId, selectedId, onHover, onSelect, sho
       const z = map.getZoom()
       if (z !== undefined && z > MAX_FIT_ZOOM) map.setZoom(MAX_FIT_ZOOM)
     })
-  }, [map, results])
+  }, [map, fitToken, results])
+
+  // 視角停下來就回報。用 idle 而不是 bounds_changed：後者在拖曳過程中
+  // 每一影格都會觸發，等於每秒打幾十次 /api/rank。
+  const onBoundsRef = useRef(onBoundsChange)
+  onBoundsRef.current = onBoundsChange
+  useEffect(() => {
+    if (!map) return
+    const listener = map.addListener('idle', () => {
+      const b = map.getBounds()
+      if (!b || !onBoundsRef.current) return
+      const sw = b.getSouthWest()
+      const ne = b.getNorthEast()
+      onBoundsRef.current({ south: sw.lat(), west: sw.lng(), north: ne.lat(), east: ne.lng() })
+    })
+    return () => listener.remove()
+  }, [map])
 
   // 卡片 hover ↔ marker 放大。就地改樣式，不重建 marker。
   useEffect(() => {

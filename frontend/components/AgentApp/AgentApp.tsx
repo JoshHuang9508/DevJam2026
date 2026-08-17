@@ -350,7 +350,7 @@ export function AgentApp() {
 
         <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
           <span className="text-neutral-500">
-            找到 <span className="font-medium tabular-nums text-neutral-900">{s.results.length}</span> 筆物件
+            這個範圍內 <span className="font-medium tabular-nums text-neutral-900">{s.results.length}</span> 筆物件
           </span>
           {s.loading && <span className="text-neutral-400">排序中…</span>}
           {s.error && <span className="text-red-600">{s.error}</span>}
@@ -373,6 +373,8 @@ export function AgentApp() {
             onHover={s.setHoveredId}
             onSelect={setSelectedId}
             showCard={!isMobile}
+            fitToken={s.fitToken}
+            onBoundsChange={s.rankInBounds}
           />
         </div>
 

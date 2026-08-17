@@ -1,7 +1,7 @@
 import { FENGSHUI_RULE_BY_KEY } from '@/lib/fengshui/rules'
 import type { ListingWithFeatures, RankResult } from '@/lib/types/listing'
 import type { SearchProfile } from '@/lib/types/profile'
-import { score } from './index'
+import { score, type ScoreOptions } from './index'
 
 interface RelaxStep {
   /** 此步驟是否適用於目前的 profile */
@@ -91,9 +91,13 @@ const RELAX_STEPS: RelaxStep[] = [
 export function rankWithRelaxation(
   profile: SearchProfile,
   pool: ListingWithFeatures[],
+  options: ScoreOptions = {},
 ): RankResult {
+  // 放寬與否一律用**不含視角**的結果判斷。把地圖拖到海上會讓視角內 0 筆，
+  // 但那不是「條件太嚴」—— 若照 0 筆就啟動階梯，使用者只是平移一下地圖，
+  // 預算與坪數條件就會被靜靜放寬掉。
   const direct = score(profile, pool)
-  if (direct.length > 0) return { results: direct, relaxations: [] }
+  if (direct.length > 0) return { results: score(profile, pool, options), relaxations: [] }
 
   let current = profile
   const relaxations: string[] = []
@@ -103,8 +107,7 @@ export function rankWithRelaxation(
     const { profile: relaxed, message } = step.apply(current)
     current = relaxed
     relaxations.push(message)
-    const results = score(current, pool)
-    if (results.length > 0) return { results, relaxations }
+    if (score(current, pool).length > 0) return { results: score(current, pool, options), relaxations }
   }
 
   relaxations.push('放寬所有條件後仍找不到符合的物件')
