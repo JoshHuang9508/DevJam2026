@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { importLibrary, setOptions } from '@googlemaps/js-api-loader'
+import { inBounds, type MapBounds } from '@/lib/client/bounds'
 import { rankColor, scorePercent } from '@/lib/client/score'
-import type { MapBounds } from '@/lib/scoring'
 import type { ScoredListing } from '@/lib/types/listing'
 import { animateCamera } from './animateCamera'
 import { MapCard } from './MapCard'
@@ -31,10 +31,8 @@ interface Props {
   onSelect: (id: string | null) => void
   /** 關掉浮動卡片。行動版下方的 ListingDeck 已經在顯示同一筆，浮層只會擋住地圖。 */
   showCard?: boolean
-  /** 遞增時把相機帶到結果上。只有「新的搜尋」該遞增，拖地圖不該。 */
+  /** 遞增時把相機帶到結果上。只有「新的搜尋」該遞增。 */
   fitToken?: number
-  /** 視角停下來時回報，供上層依視角重新取結果。 */
-  onBoundsChange?: (bounds: MapBounds) => void
 }
 
 type Libs = {
@@ -70,8 +68,7 @@ function loadLibs(): Promise<Libs> {
  * 這個量級用 DOM 綽綽有餘；哪天要一次顯示整個候選池才需要 marker clusterer。
  */
 export function MapView({
-  results, hoveredId, selectedId, onHover, onSelect, showCard = true,
-  fitToken = 0, onBoundsChange,
+  results, hoveredId, selectedId, onHover, onSelect, showCard = true, fitToken = 0,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapDivRef = useRef<HTMLDivElement>(null)
@@ -162,45 +159,85 @@ export function MapView({
     }
   }, [])
 
-  // 結果更新 → 只重建 marker。相機由下一個 effect 依 fitToken 決定，
-  // 兩件事必須分開：使用者拖地圖會換一批結果，那時候動相機就會把他拖走。
+  // 目前視角。只在 idle 更新 —— bounds_changed 在拖曳時每一影格都觸發，
+  // 拿它當 state 會讓整個 marker 同步流程每秒跑幾十次。拖曳過程中圖釘本來就
+  // 由 Google 自己跟著地圖移動，中途不需要重算誰該出現。
+  const [viewport, setViewport] = useState<MapBounds | null>(null)
+  useEffect(() => {
+    if (!map) return
+    const sync = () => {
+      const b = map.getBounds()
+      if (!b) return
+      const sw = b.getSouthWest()
+      const ne = b.getNorthEast()
+      setViewport({ south: sw.lat(), west: sw.lng(), north: ne.lat(), east: ne.lng() })
+    }
+    sync()
+    const listener = map.addListener('idle', sync)
+    return () => listener.remove()
+  }, [map])
+
+  // 換一批結果就丟掉整個 marker 快取。名次寫在圖釘上（#1、#2…），沿用舊物件
+  // 會讓上一批的號碼留在畫面上。
+  useEffect(() => {
+    markersRef.current.forEach(({ marker }) => { marker.map = null })
+    markersRef.current.clear()
+  }, [results])
+
+  /**
+   * 只掛視角內的圖釘。結果本身是**全範圍**的前 N 名（見 lib/scoring），
+   * 這裡純粹是渲染層的取捨：視角外的那些仍然在清單裡、名次也不變，
+   * 只是先不在地圖上生出 DOM 節點。marker 物件建過就留在快取裡重複使用，
+   * 拖回去時只是把 marker.map 接回來，不用重建 DOM。
+   */
   useEffect(() => {
     const libs = libsRef.current
     if (!map || !libs) return
 
-    markersRef.current.forEach(({ marker }) => { marker.map = null })
-    markersRef.current.clear()
-
+    const shouldShow = new Set<string>()
     results.forEach((r, i) => {
-      const el = document.createElement('button')
-      el.type = 'button'
-      el.title = `${r.title}｜${scorePercent(r.score)} 分`
-      el.textContent = String(i + 1)
-      el.style.cssText = [
-        'display:grid', 'place-items:center', 'cursor:pointer', 'padding:0',
-        'font:700 14px/1 ui-sans-serif,system-ui,sans-serif', 'color:#fff',
-        'border:3px solid #fff', 'border-radius:9999px',
-        'box-shadow:0 2px 6px rgb(15 23 42 / .4)',
-        'transition:width .12s,height .12s,box-shadow .12s',
-        // AdvancedMarker 把 content 的底部中心對齊座標點，下移一半高度才會置中
-        'transform:translateY(50%)',
-      ].join(';')
-      el.addEventListener('mouseenter', () => onHoverRef.current(r.id))
-      el.addEventListener('mouseleave', () => onHoverRef.current(null))
+      // 選取／hover 中的那筆一定掛著：它可能是從清單點的，相機還沒飛到，
+      // 但 MapCard 需要它的螢幕座標。
+      const pinned = r.id === selectedId || r.id === hoveredId
+      if (!pinned && viewport && !inBounds(r, viewport)) return
+      shouldShow.add(r.id)
 
-      const marker = new libs.AdvancedMarkerElement({
-        map,
-        position: { lat: r.lat, lng: r.lng },
-        content: el,
-        title: el.title,
-        gmpClickable: true,
-        zIndex: markerZIndex(i, results.length),
-      })
-      marker.addListener('gmp-click', () => onSelectRef.current(r.id))
-      markersRef.current.set(r.id, { marker, el })
+      let entry = markersRef.current.get(r.id)
+      if (!entry) {
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.title = `${r.title}｜${scorePercent(r.score)} 分`
+        el.textContent = String(i + 1)
+        el.style.cssText = [
+          'display:grid', 'place-items:center', 'cursor:pointer', 'padding:0',
+          'font:700 14px/1 ui-sans-serif,system-ui,sans-serif', 'color:#fff',
+          'border:3px solid #fff', 'border-radius:9999px',
+          'box-shadow:0 2px 6px rgb(15 23 42 / .4)',
+          'transition:width .12s,height .12s,box-shadow .12s',
+          // AdvancedMarker 把 content 的底部中心對齊座標點，下移一半高度才會置中
+          'transform:translateY(50%)',
+        ].join(';')
+        el.addEventListener('mouseenter', () => onHoverRef.current(r.id))
+        el.addEventListener('mouseleave', () => onHoverRef.current(null))
+
+        const marker = new libs.AdvancedMarkerElement({
+          position: { lat: r.lat, lng: r.lng },
+          content: el,
+          title: el.title,
+          gmpClickable: true,
+          zIndex: markerZIndex(i, results.length),
+        })
+        marker.addListener('gmp-click', () => onSelectRef.current(r.id))
+        entry = { marker, el }
+        markersRef.current.set(r.id, entry)
+      }
+      if (entry.marker.map !== map) entry.marker.map = map
     })
 
-  }, [map, results])
+    markersRef.current.forEach((entry, id) => {
+      if (!shouldShow.has(id) && entry.marker.map) entry.marker.map = null
+    })
+  }, [map, results, viewport, selectedId, hoveredId])
 
   // 新的搜尋才把相機帶到結果上。fitToken 由 useSearchState 在「非視角觸發」的
   // 查詢後遞增；視角觸發的查詢不會動它，相機因此留在使用者放的位置。
@@ -222,22 +259,6 @@ export function MapView({
     })
   }, [map, fitToken, results])
 
-  // 視角停下來就回報。用 idle 而不是 bounds_changed：後者在拖曳過程中
-  // 每一影格都會觸發，等於每秒打幾十次 /api/rank。
-  const onBoundsRef = useRef(onBoundsChange)
-  onBoundsRef.current = onBoundsChange
-  useEffect(() => {
-    if (!map) return
-    const listener = map.addListener('idle', () => {
-      const b = map.getBounds()
-      if (!b || !onBoundsRef.current) return
-      const sw = b.getSouthWest()
-      const ne = b.getNorthEast()
-      onBoundsRef.current({ south: sw.lat(), west: sw.lng(), north: ne.lat(), east: ne.lng() })
-    })
-    return () => listener.remove()
-  }, [map])
-
   // 卡片 hover ↔ marker 放大。就地改樣式，不重建 marker。
   useEffect(() => {
     results.forEach((r, i) => {
@@ -257,7 +278,9 @@ export function MapView({
         : '0 2px 6px rgb(15 23 42 / .4)'
       entry.el.style.opacity = hoveredId && !active ? '0.55' : '1'
     })
-  }, [hoveredId, selectedId, results])
+    // viewport 也要當依賴：拖進視角而新建出來的 marker 還沒上過色與尺寸，
+    // 少了這一條它們會以預設樣式停在畫面上直到下一次 hover。
+  }, [hoveredId, selectedId, results, viewport])
 
   // 選取 → 平滑移動並放大置中。center 與 zoom 一起插值，不用 panTo + setZoom：
   // 那組合是「補間平移」後接「瞬間縮放」，切物件時會看到兩段式的跳動。

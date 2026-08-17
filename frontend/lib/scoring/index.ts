@@ -68,29 +68,17 @@ export function normalizeWeights(
   return out
 }
 
-/** 地圖視角。西南／東北兩角，與 Google Maps 的 LatLngBounds 對應。 */
-export interface MapBounds {
-  south: number
-  west: number
-  north: number
-  east: number
-}
-
 export interface ScoreOptions {
-  /** 只保留落在視角內的結果。分數仍以**全池**正規化，拖地圖不會讓同一間房子變分數。 */
-  bounds?: MapBounds
-  /** 覆寫 MAX_RESULTS。地圖用 200，清單沿用預設。 */
+  /** 覆寫 MAX_RESULTS。 */
   limit?: number
 }
 
-function inBounds(listing: { lat: number; lng: number }, b: MapBounds): boolean {
-  if (listing.lat < b.south || listing.lat > b.north) return false
-  // 跨換日線時 west > east，要拆成兩段判斷。台灣用不到，但地圖可以被拖到那裡。
-  return b.west <= b.east
-    ? listing.lng >= b.west && listing.lng <= b.east
-    : listing.lng >= b.west || listing.lng <= b.east
-}
-
+/**
+ * 排序不看地圖視角。前 N 名是**整個候選池**的前 N 名，跟相機在哪裡無關 ——
+ * 視角過濾曾經做在這裡，結果是拖一下地圖就換一批「前 30 名」，同一間房子的
+ * 名次與顏色會跟著相機跳。現在地圖只是不畫視角外的圖釘（見 MapView），
+ * 名次、清單與 agent 講的那份始終是同一份。
+ */
 export function score(
   profile: SearchProfile,
   pool: ListingWithFeatures[],
@@ -123,22 +111,19 @@ export function score(
 
   scored.sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
 
-  // 視角過濾**排在正規化之後**：min-max 是在候選池內做的，如果先砍成視角內再算，
-  // 同一間房子往旁邊拖一下分數就會變（0.9 變 0.4），顏色和名次跟著跳。
-  const inView = options.bounds ? scored.filter((r) => inBounds(r, options.bounds as MapBounds)) : scored
   const maxResults = options.limit ?? MAX_RESULTS
 
   // 多樣性護欄有兩層：縣市與行政區。兩層都是「取設定值與平均名額的較大者」，
   // 候選池被篩窄時自動放寬，否則使用者指定單一行政區只會拿到 5 筆。
-  const districtCount = new Set(inView.map((r) => `${r.city}|${r.district}`)).size
-  const cityCount = new Set(inView.map((r) => r.city)).size
+  const districtCount = new Set(scored.map((r) => `${r.city}|${r.district}`)).size
+  const cityCount = new Set(scored.map((r) => r.city)).size
   const perDistrictCap = Math.max(MAX_PER_DISTRICT, Math.ceil(maxResults / Math.max(districtCount, 1)))
   const perCityCap = Math.max(Math.ceil(maxResults * CITY_SHARE), Math.ceil(maxResults / Math.max(cityCount, 1)))
 
   const perDistrict = new Map<string, number>()
   const perCity = new Map<string, number>()
   const diverse: ScoredListing[] = []
-  for (const r of inView) {
+  for (const r of scored) {
     const districtKey = `${r.city}|${r.district}`
     if ((perDistrict.get(districtKey) ?? 0) >= perDistrictCap) continue
     if ((perCity.get(r.city) ?? 0) >= perCityCap) continue

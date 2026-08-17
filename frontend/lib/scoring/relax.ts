@@ -106,11 +106,8 @@ export function rankWithRelaxation(
   pool: ListingWithFeatures[],
   options: ScoreOptions = {},
 ): RankResult {
-  // 放寬與否一律用**不含視角**的結果判斷。把地圖拖到海上會讓視角內 0 筆，
-  // 但那不是「條件太嚴」—— 若照 0 筆就啟動階梯，使用者只是平移一下地圖，
-  // 預算與坪數條件就會被靜靜放寬掉。
-  const direct = score(profile, pool)
-  if (direct.length > 0) return { results: score(profile, pool, options), relaxations: [] }
+  const direct = score(profile, pool, options)
+  if (direct.length > 0) return { results: direct, relaxations: [] }
 
   let current = profile
   const relaxations: string[] = []
@@ -120,7 +117,8 @@ export function rankWithRelaxation(
     const { profile: relaxed, message } = step.apply(current)
     current = relaxed
     relaxations.push(message)
-    if (score(current, pool).length > 0) return { results: score(current, pool, options), relaxations }
+    const relaxedResults = score(current, pool, options)
+    if (relaxedResults.length > 0) return { results: relaxedResults, relaxations }
   }
 
   relaxations.push(

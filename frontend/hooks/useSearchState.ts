@@ -2,18 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { parseProfile } from '@/lib/profile/schema'
-import type { MapBounds } from '@/lib/scoring'
 import type { ScoredListing } from '@/lib/types/listing'
 import { DEFAULT_PROFILE, type SearchProfile } from '@/lib/types/profile'
 
 const STORAGE_KEY = 'housing-agent.profile.v1'
 
 /**
- * 一個視角內最多回幾筆。
- * 拿少一點是刻意的：使用者一次看不完 50 個圖釘，而想看更多的正確操作是
- * 把地圖拉近，那本來就會重新查詢。資料庫有索引，多查幾次比一次塞滿便宜。
+ * 一次查幾筆。這是**全範圍**的前 N 名，與地圖視角無關 ——
+ * 拖地圖不會重新查詢，只是讓地圖少畫幾個視角外的圖釘（見 MapView）。
  */
-const MAP_LIMIT = 50
+const RESULT_LIMIT = 50
 
 function loadStoredProfile(): SearchProfile {
   if (typeof window === 'undefined') return DEFAULT_PROFILE
@@ -33,12 +31,9 @@ export function useSearchState() {
   const [error, setError] = useState<string | null>(null)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   const requestSeq = useRef(0)
-  // 相機要不要跟著結果移動。只有「新的搜尋」才該 fitBounds；
-  // 使用者自己拖地圖造成的重新查詢如果也 fitBounds，相機會被搶走，
-  // 而且 fitBounds 又觸發下一次查詢 —— 直接進無限迴圈。
+  // 相機要不要跟著結果移動。查詢不再由拖地圖觸發，所以每次查詢都是「新的搜尋」，
+  // fitBounds 也就不會再跟使用者的相機互搶。
   const [fitToken, setFitToken] = useState(0)
-  const lastBounds = useRef<MapBounds | null>(null)
-  const lastProfile = useRef<SearchProfile | null>(null)
 
   // localStorage 只能在掛載後讀取，避免 SSR / CSR 內容不一致
   useEffect(() => { setProfileState(loadStoredProfile()) }, [])
@@ -48,19 +43,15 @@ export function useSearchState() {
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* 無痕模式可忽略 */ }
   }, [])
 
-  const rank = useCallback(async (target: SearchProfile, opts: { bounds?: MapBounds | null; keepCamera?: boolean } = {}) => {
+  const rank = useCallback(async (target: SearchProfile) => {
     const seq = ++requestSeq.current
-    // bounds 沒給就沿用上一次的，這樣改權重時不會突然跳回全國視角
-    const bounds = opts.bounds !== undefined ? opts.bounds : lastBounds.current
-    lastBounds.current = bounds ?? null
-    lastProfile.current = target
     setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/rank', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ profile: target, bounds: bounds ?? undefined, limit: MAP_LIMIT }),
+        body: JSON.stringify({ profile: target, limit: RESULT_LIMIT }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json() as { results: ScoredListing[]; relaxations: string[] }
@@ -68,7 +59,7 @@ export function useSearchState() {
       if (seq !== requestSeq.current) return
       setResults(data.results)
       setRelaxations(data.relaxations)
-      if (!opts.keepCamera) setFitToken((n) => n + 1)
+      setFitToken((n) => n + 1)
     } catch {
       if (seq !== requestSeq.current) return
       setError('排序失敗，請稍後再試')
@@ -77,19 +68,12 @@ export function useSearchState() {
     }
   }, [])
 
-  /** 地圖視角改變。只換結果，不動相機。 */
-  const rankInBounds = useCallback((bounds: MapBounds) => {
-    const target = lastProfile.current
-    if (!target) return
-    void rank(target, { bounds, keepCamera: true })
-  }, [rank])
-
   return {
     profile, setProfile,
     results, setResults,
     relaxations, setRelaxations,
     loading, error,
     hoveredId, setHoveredId,
-    rank, rankInBounds, fitToken,
+    rank, fitToken,
   }
 }

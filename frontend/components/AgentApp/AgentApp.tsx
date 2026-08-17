@@ -367,7 +367,6 @@ export function AgentApp() {
             onSelect={setSelectedId}
             showCard={!isMobile}
             fitToken={s.fitToken}
-            onBoundsChange={s.rankInBounds}
           />
         </div>
 
