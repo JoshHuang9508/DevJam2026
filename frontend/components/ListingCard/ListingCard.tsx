@@ -1,4 +1,3 @@
-import { FengshuiCard } from '@/components/Fengshui/FengshuiCard'
 import { formatArea, formatCommute, formatDistance, formatPrice } from '@/lib/client/format'
 import { scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
@@ -17,8 +16,6 @@ interface Props {
 /**
  * 最強與最弱的維度，用來寫出「優點 / 取捨」兩行。
  *
- * 只在權重 > 0 的維度裡挑：權重 0 的維度對總分的貢獻恆為 0，把它寫成「− 風水相對弱」
- * 會讓使用者以為排名被一個根本沒參與計分的項目拖累（風水預設權重就是 0）。
  * breakdown[key].weight 已是正規化權重，所以這裡不需要 profile。
  * 全部維度權重都是 0 時退回全維度 —— 寧可描述得粗略，也不要整段文案消失。
  *
@@ -114,9 +111,7 @@ export function ListingCardBody({ listing, rank, expanded, onToggleExpanded }: B
               − {WEIGHT_LABELS[worst]}相對弱（{Math.round(listing.breakdown[worst].subscore * 100)}）
             </p>
           )}
-          <FengshuiCard listing={listing} />
 
-          {/* 風水也要逐項點名：FengshuiCard 的模擬聲明藏在 <details> 裡，收合狀態看不到 */}
           <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
             {listing.dataGaps.length > 0 && '本物件部分欄位缺失，以同區中位數補值'}
           </p>

@@ -87,7 +87,7 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
       </ul>
 
       <p className="mt-8 text-center text-xs text-neutral-400">
-        價格與生活機能取自公開資料，可能過時或有誤。氣候為區域參考值，通勤時間為估計值，風水格局證據為模擬值。
+        價格與生活機能取自公開資料，可能過時或有誤。氣候為區域參考值，通勤時間為估計值。
       </p>
     </div>
   )

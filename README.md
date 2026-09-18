@@ -7,7 +7,69 @@ Repo 是兩個各自獨立的套件：Next.js 前端在 [`frontend/`](frontend/)
 `package.json`、lockfile 與 `node_modules`，沒有 monorepo workspace 串在一起，只透過 HTTP
 （`BACKEND_URL`）溝通。
 
-## 快速開始
+## Docker 一鍵啟動
+
+不需要 API key，也不需要先安裝 Node.js、PostgreSQL 或 Google Maps：
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+開啟 http://localhost:3000。預設使用 SQLite 示範資料、記憶體 session、規則式對話模式與
+OpenStreetMap 底圖；只有前端的 3000 port 會對外開放。
+
+```bash
+# 看日誌
+docker compose logs -f web backend
+
+# 停止
+docker compose down
+
+# 清掉持久化資料並重新產生示範資料
+docker compose down -v
+docker compose up -d --build
+```
+
+複製 [`.env.example`](.env.example) 成 `.env` 可以改 port 或開啟選用整合，但零設定就能跑。
+
+### 免費／開源替代方案
+
+| 原本依賴 | 預設替代 | 金鑰 |
+| --- | --- | --- |
+| Google Maps JavaScript API | MapLibre GL JS + OpenFreeMap（OpenStreetMap 資料） | 不需要 |
+| Google Geocoding | OpenStreetMap Nominatim | 不需要 |
+| Gemini 對話模型 | 本機 deterministic parser | 不需要 |
+| PostgreSQL session | 容器記憶體 | 不需要 |
+| 物件資料庫 | SQLite named volume | 不需要 |
+
+地圖會顯示 OpenStreetMap attribution，也可用 `NEXT_PUBLIC_MAP_STYLE_URL` 改接自架 MapLibre style。
+Nominatim 每次只會單線查詢、兩次請求至少間隔 1.1 秒、預設每輪最多新查
+250 筆且結果會快取；大量或週期性地址定位應改成自架 Nominatim。
+
+需要完整 LLM 對話時可以接免費的本機 OpenAI-compatible server（例如 Ollama）。在 `.env` 設定：
+
+```dotenv
+AGENT_MODE=pi
+PI_PROVIDER=custom-openai
+PI_MODEL=qwen2.5:3b
+CUSTOM_OPENAI_BASE_URL=http://host.docker.internal:11434/v1
+CUSTOM_OPENAI_API_KEY=ollama
+```
+
+`TWINKLE_API_KEY`、`TAVILY_API_KEY`、`CWA_API_KEY`、`MOENV_API_KEY` 都是選用；沒設定不影響示範資料與
+核心搜尋流程。
+
+### 更新真實資料
+
+```bash
+docker compose --profile tools run --rm data-refresh
+docker compose restart web
+```
+
+可在 `.env` 用 `GEOCODE_BUDGET` 控制這次最多新增幾筆定位，設成 `0` 可完全略過地址 API。
+
+## 本機開發
 
 兩個資料夾各開一個終端機。
 
@@ -24,8 +86,6 @@ pnpm db:push                 # 建立 SQLite schema
 pnpm db:seed                 # 灌入示範資料
 pnpm dev
 ```
-
-開啟 http://localhost:3000
 
 ## 路由
 
@@ -60,22 +120,6 @@ engine 產生，模型不編分數），前 6 個行政區才交給 `lib/scoring
 氣候值為中央氣象署測站氣候平均的近似值，POI 與距離為模擬值。
 後端 fixture 涵蓋全台 32 個行政區，臺北／新北的清單與氣候值與 `scripts/seed.ts` 對齊。
 真實資料抓取與 enrich pipeline 見計畫 B。
-
-## 風水體檢
-
-排序的第八個維度。六條常見忌諱（穿堂煞、開門見灶、開門見廁、樑壓床、明堂狹窄、路衝／壁刀）
-由 `lib/fengshui` 的確定性規則引擎判定 —— 同樣**不交給 LLM**，模型只負責把「我在意風水」
-轉成權重變動。物件卡片會列出命中項目、傳統說法與裝潢角度的解法建議。
-
-**預設權重是 0**，要自己拉起來才會作用。風水是信仰性偏好，不該預設替所有人選邊站；
-權重 0 也代表沒開啟時排序結果與加這功能之前逐筆相同。
-
-**證據是模擬的。** 判斷所需的八個 `fs*` 欄位由 `scripts/seed.ts` 依屋齡、坪數、樓層等特徵
-擲骰產生，**系統並沒有真的辨識任何格局圖、照片或街景圖**。卡片上寫某間房子有穿堂煞，
-不代表它真的有。真實 pipeline 要接的就是這一層 —— 介面已經留好，換掉證據來源即可，
-規則引擎與 UI 都不用改。
-
-風水是文化偏好而非科學結論，系統不預測吉凶，解法建議一律以裝潢、採光與噪音的角度陳述。
 
 ## ⚠️ 尚未準備好上線部署
 

@@ -1,5 +1,3 @@
-import type { FengshuiIssueKey } from './fengshui'
-
 export type Mode = 'sale' | 'rent'
 
 export type WeightKey =
@@ -11,10 +9,9 @@ export type WeightKey =
   | 'space'
   | 'quality'
   | 'hazard'
-  | 'fengshui'
 
 export const WEIGHT_KEYS: readonly WeightKey[] = [
-  'price', 'value', 'weather', 'location', 'amenities', 'space', 'quality', 'hazard', 'fengshui',
+  'price', 'value', 'weather', 'location', 'amenities', 'space', 'quality', 'hazard',
 ] as const
 
 export const WEIGHT_LABELS: Record<WeightKey, string> = {
@@ -26,7 +23,6 @@ export const WEIGHT_LABELS: Record<WeightKey, string> = {
   space: '坪數格局',
   quality: '屋況條件',
   hazard: '災害風險',
-  fengshui: '風水',
 }
 
 export const REGIONS = ['北部', '中部', '南部', '東部', '離島'] as const
@@ -79,8 +75,6 @@ export interface HardConstraints {
    * 那是最容易產生幻覺的地方（模型很敢給一組看起來合理但差幾十公里的經緯度）。
    */
   near?: { lat: number; lng: number; radiusKm: number; label?: string }
-  /** 使用者明確表示要避開的風水忌諱 */
-  avoidFengshui?: FengshuiIssueKey[]
 }
 
 export interface CommuteAnchor {
@@ -107,11 +101,8 @@ export interface SearchProfile {
 
 export const DEFAULT_PROFILE: SearchProfile = {
   mode: 'sale',
-  // fengshui 預設 0：風水是信仰性偏好，必須由使用者主動說出口才 opt-in。
-  // 權重 0 在 normalizeWeights 下佔不到任何比例，對總分的貢獻恆為 0，
-  // 因此未開啟風水時排序結果與加入本功能前逐筆相同（既有排序零回歸）。
-  // hazard 預設 50：淹水與土壤液化是客觀風險，不像風水需要 opt-in。
-  weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50, hazard: 50, fengshui: 0 },
+  // hazard 預設 50：淹水與土壤液化是客觀風險，預設就參與排序。
+  weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50, hazard: 50 },
   hard: {},
   soft: {},
   notes: [],

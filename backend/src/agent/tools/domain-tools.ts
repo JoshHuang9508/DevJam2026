@@ -299,10 +299,8 @@ const PATCH_SHAPE = [
   "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
   "softPreferences.amenities: weight, convenienceStore, supermarket, hospital, clinic, restaurant, school, park.",
   "softPreferences.geography: weight, urbanDensity, elevation, coastalPreference (-1..1).",
-  "listingPreferences: fengshuiWeight (0..1), hazardWeight (0..1), avoidFengshui[] — 物件層級，不影響行政區排名，前端拿去排物件。",
+  "listingPreferences: hazardWeight (0..1) — 物件層級，不影響行政區排名，前端拿去排物件。",
   "hazardWeight 是災害風險（附近淹水災點密度 + 土壤液化潛勢）的比重，預設 0.5。使用者說「怕淹水」「不要低窪」「在意土壤液化」就調高它。",
-  "avoidFengshui only accepts: throughDraft 穿堂煞, stoveInSight 開門見灶, toiletFacingDoor 開門見廁,",
-  "beamPressure 樑壓床, narrowHall 明堂狹窄, roadRush 路衝壁刀. It is a hard exclusion — see the fengshui rule in the system prompt.",
   "Every weight is 0..1. Omit whatever the user did not mention.",
 ].join(" ");
 

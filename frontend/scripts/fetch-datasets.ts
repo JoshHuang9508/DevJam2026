@@ -14,7 +14,7 @@
  *   淹水災點       NCDR               開放                        免金鑰
  *   氣候平均值     中央氣象署         政府資料開放授權條款 v1     需 CWA_API_KEY
  *   空氣品質       環境部             政府資料開放授權條款 v1     需 MOENV_API_KEY
- *   地址定位       Google Geocoding   商用計費                    需 GEOCODING_API_KEY
+ *   地址定位       OpenStreetMap Nominatim ODbL 1.0                 免金鑰
  *
  * 沒有金鑰的來源會被略過，對應欄位留 null，前端的 fillDataGaps 會補中位數並在
  * dataGaps 標示 —— 這比塞一個假數字進去誠實。
@@ -96,10 +96,14 @@ async function main(): Promise<void> {
   // 不能在第一段就退回「行政區重心」—— 全台 368 個區不可能硬寫成表，
   // 之前只有 30 個區的版本會讓查不到的區全部退到清單第一筆（中正區），
   // 於是桃園台中高雄的物件會整批落在台北市中心。
+  const budget = process.env.GEOCODE_BUDGET === undefined ? 250 : Number(process.env.GEOCODE_BUDGET)
+  if (!Number.isFinite(budget) || budget < 0) throw new Error('GEOCODE_BUDGET 必須是大於等於 0 的數字')
   const geocoder = new Geocoder(
     `${CACHE_DIR}/geocode.json`,
-    process.env.GEOCODING_API_KEY,
-    Number(process.env.GEOCODE_BUDGET) || Number.POSITIVE_INFINITY,
+    process.env.NOMINATIM_URL,
+    process.env.NOMINATIM_USER_AGENT,
+    process.env.NOMINATIM_EMAIL,
+    budget,
   )
 
   type Located = LvrRecord & { lat: number; lng: number; approximate: boolean }
@@ -216,17 +220,13 @@ async function main(): Promise<void> {
       poi_park_500, poi_park_1k, poi_restaurant_500, poi_restaurant_1k,
       dist_to_metro, dist_to_train, dist_to_bus, commute_to_cbd_min,
       district_median_unit_price, price_percentile, dist_to_main_road, dist_to_rail,
-      flood_incidents_500, liquefaction_level,
-      fs_entry_window_aligned, fs_entry_screen, fs_stove_visible_from_door, fs_toilet_facing_door,
-      fs_beam_over_bed, fs_living_room_depth_m, fs_daylight_blocked, fs_road_rush
+      flood_incidents_500, liquefaction_level
     ) VALUES (
       @listingId, @annualTemp, @summerTemp, @winterTemp, @rainDays, @humidity, @sunHours, @aqiMean,
       @c5, @c1k, @s5, @s1k, @sc5, @sc1k, @h5, @h1k, @p5, @p1k, @r5, @r1k,
       @distToMetro, @distToTrain, @distToBus, @commuteToCbdMin,
       @districtMedianUnitPrice, @pricePercentile, @distToMainRoad, @distToRail,
-      @floodIncidents500, @liquefactionLevel,
-      @fsEntryWindowAligned, @fsEntryScreen, @fsStoveVisibleFromDoor, @fsToiletFacingDoor,
-      @fsBeamOverBed, @fsLivingRoomDepthM, @fsDaylightBlocked, @fsRoadRush
+      @floodIncidents500, @liquefactionLevel
     )`)
 
   const write = db.transaction(() => {
@@ -328,9 +328,6 @@ async function main(): Promise<void> {
         distToMainRoad: distToMainRoad === null ? null : Math.round(distToMainRoad),
         distToRail: distToRail === null ? null : Math.round(distToRail),
 
-        // ⚠ 風水證據是**擲骰產生的假資料**，見 fengshuiEvidence 的說明。
-        ...fengshuiEvidence(id, record),
-
         // null 與 0 的差別很重要：null＝沒查（沒抓災點資料），0＝查過但附近沒有。
         // 前者會被 fillDataGaps 補中位數並標進 dataGaps，後者是真的安全。
         floodIncidents500: flood.length ? floodNearby : null,
@@ -346,53 +343,6 @@ async function main(): Promise<void> {
 
   log('pipeline', `完成，耗時 ${Math.round((Date.now() - started) / 1000)}s：`
     + counts.map((c) => `${c.mode}=${c.n}`).join(' '))
-}
-
-/**
- * ⚠ **風水證據是假的。**
- *
- * 這八個欄位需要判讀格局圖、照片或街景，實價登錄完全沒有這些資訊，短期內也做不出來。
- * 依需求破例用擲骰產生，讓風水維度有東西可以算，而不是整維失效。
- *
- * 用門牌雜湊當種子而不是 Math.random()：同一間房子每次跑 pipeline 都要得到同一組值，
- * 否則每天更新資料後排名會無故跳動，使用者會以為系統壞了。
- *
- * 機率不是均勻亂數，而是依屋齡、樓層、坪數調整過的 —— 老公寓比新大樓更可能有樑壓床、
- * 低樓層更可能採光受阻。這讓假資料至少在統計上像真的，但**它仍然是假的**：
- * 卡片上說某間房子有穿堂煞，不代表它真的有。前端必須標示清楚。
- */
-function fengshuiEvidence(id: string, record: LvrRecord): Record<string, number | null> {
-  let h = 2166136261
-  for (let i = 0; i < id.length; i += 1) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) }
-  let cursor = h >>> 0
-  const rand = () => {
-    // xorshift32：同一個種子必然產生同一串值
-    cursor ^= cursor << 13; cursor >>>= 0
-    cursor ^= cursor >>> 17
-    cursor ^= cursor << 5; cursor >>>= 0
-    return cursor / 4294967296
-  }
-  const flag = (p: number) => (rand() < p ? 1 : 0)
-
-  const old = record.age >= 30
-  const lowFloor = record.floor <= 3
-  const small = record.area <= 20
-
-  return {
-    // 小坪數的開放式格局較容易前後門窗對齊
-    fsEntryWindowAligned: flag(small ? 0.30 : 0.18),
-    // 有玄關屏風是化解手段，新屋比較常見
-    fsEntryScreen: flag(old ? 0.25 : 0.45),
-    fsStoveVisibleFromDoor: flag(small ? 0.35 : 0.20),
-    fsToiletFacingDoor: flag(0.15),
-    // 老屋樑柱外露的比例高
-    fsBeamOverBed: flag(old ? 0.35 : 0.18),
-    // 明堂縱深（公尺），跟坪數正相關
-    fsLivingRoomDepthM: Math.round((2.0 + Math.sqrt(record.area) * 0.35 + rand() * 1.2) * 10) / 10,
-    // 低樓層採光受阻的機率高很多
-    fsDaylightBlocked: flag(lowFloor ? 0.40 : 0.12),
-    fsRoadRush: flag(0.12),
-  }
 }
 
 /** 依 key 分群取座標平均。用來從已精確定位的物件反推行政區／縣市重心。 */

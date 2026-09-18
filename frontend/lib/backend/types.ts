@@ -4,7 +4,6 @@
  * regenerate from http://localhost:3001/openapi.json if the backend contract moves.
  */
 
-import type { FengshuiIssueKey } from '@/lib/types/fengshui'
 
 export type Region = '北部' | '中部' | '南部' | '東部' | '離島'
 export type DataQuality = 'observed' | 'estimated' | 'fixture' | 'missing'
@@ -133,16 +132,10 @@ export interface HardConstraints {
   maxCommuteMinutes?: number
 }
 
-/**
- * 物件層級的意圖。後端只存不用 —— 它排的是行政區，而穿堂煞是某一戶的格局，不是某一區的性質。
- * 存在後端是因為 agent 是唯一的萃取器，需要一個地方寫入「我很在意風水」。
- */
+/** 物件層級的意圖。後端只存不用 —— 它排的是行政區。 */
 export interface ListingPreferences {
-  /** 0..1，對應前端 weights.fengshui 的 0..100 */
-  fengshuiWeight: number
   /** 災害風險（淹水災點 + 土壤液化）在物件排序裡的比重。 */
   hazardWeight?: number
-  avoidFengshui: FengshuiIssueKey[]
 }
 
 export interface PreferenceState {

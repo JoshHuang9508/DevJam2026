@@ -70,19 +70,6 @@ export const listingFeatures = sqliteTable('listing_features', {
   /** 土壤液化潛勢 1 低 / 2 中 / 3 高。只有臺北市有圖資，其餘為 null＝未檢測。 */
   liquefactionLevel: integer('liquefaction_level'),
 
-  // 風水證據欄位。屬性名必須與 FengshuiFeatureKey 逐字相同，loadPool 才能整包當 ListingFeatures 用。
-  // 旗標刻意用 integer() 而非 { mode: 'boolean' } —— fillDataGaps 要對缺值算中位數，
-  // 那是數值運算；一旦轉成 boolean 就補不了值，也算不出 0..1 的小數風險。
-  // 全部 nullable：null = 沒有格局圖／街景可辨識，屬「未檢測」，不等於「無虞」。
-  fsEntryWindowAligned: integer('fs_entry_window_aligned'),
-  fsEntryScreen: integer('fs_entry_screen'),
-  fsStoveVisibleFromDoor: integer('fs_stove_visible_from_door'),
-  fsToiletFacingDoor: integer('fs_toilet_facing_door'),
-  fsBeamOverBed: integer('fs_beam_over_bed'),
-  /** 客廳縱深（公尺），連續值故用 real() */
-  fsLivingRoomDepthM: real('fs_living_room_depth_m'),
-  fsDaylightBlocked: integer('fs_daylight_blocked'),
-  fsRoadRush: integer('fs_road_rush'),
 })
 
 export const districts = sqliteTable('districts', {

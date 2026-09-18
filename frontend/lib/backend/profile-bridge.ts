@@ -10,16 +10,12 @@ import { DEFAULT_PROFILE, REGIONS, normalizeCity, type Region, type SearchProfil
  *   weather        <->  softPreferences.climate.weight
  *   location       <->  softPreferences.transportation.weight
  *   amenities      <->  softPreferences.amenities.weight
- *   fengshui       <->  listingPreferences.fengshuiWeight (1:1, delta-preserving)
+ *   hazard         <->  listingPreferences.hazardWeight (1:1, delta-preserving)
  *   space, quality -> (no district-level equivalent; never overwritten)
  *   (none)         <-   softPreferences.geography.weight (district selection only)
  *
  * Hard constraints split the same way: region/city/rent live in the backend, while
  * 坪數/格局/屋齡/電梯/車位 stay listing-level and are passed through untouched.
- * `avoidFengshui` is the exception among the listing-level constraints: it round-trips,
- * because 「絕對不要穿堂煞」 has to be extractable from a sentence and the backend agent is
- * the only extractor left (the frontend Gemini path was removed in 7c5bdaf). The backend
- * stores both fengshui fields without scoring them — see backend listingPreferencesSchema.
  */
 
 const clamp100 = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : Math.round(v))
@@ -47,13 +43,10 @@ export function toPreferencePatch(profile: SearchProfile): PreferencePatch {
     // always sent, including the empty array: deep-merge 對陣列是整體覆寫，所以送 [] 正是
     // 「取消避開」唯一能表達得出來的方式（後端沒有 null 清欄位的表示法）。
     listingPreferences: {
-      fengshuiWeight: toWeight(w.fengshui),
       hazardWeight: toWeight(w.hazard),
-      avoidFengshui: profile.hard.avoidFengshui ?? [],
     },
   }
 
-  // 空陣列一律送 —— 與 avoidFengshui 同一個道理：deep-merge 對陣列是整體覆寫，
   // 送空陣列是「使用者取消了」唯一表達得出來的方式。只在非空時送的話，一旦設過就清不掉。
   const hard: NonNullable<PreferencePatch['hardConstraints']> = {
     regions: profile.hard.regions ?? [],
@@ -134,10 +127,7 @@ export function toSearchProfile(
     amenities: clamp100(soft.amenities.weight * 100),
     space: base.weights.space,
     quality: base.weights.quality,
-    // 後端不拿風水排行政區，但會存 agent 從對話萃取出來的值，所以這一維要讀回來。
-    // 每個欄位都必須有值：漏掉會讓 weights.fengshui 變 undefined，normalizeWeights
     // 加總後整份權重變 NaN、排序全毀 —— 新增權重維度時這裡必須跟著補。
-    fengshui: listing ? agentMoved(listing.fengshuiWeight, base.weights.fengshui) : base.weights.fengshui,
     hazard: listing && typeof listing.hazardWeight === 'number'
       ? agentMoved(listing.hazardWeight, base.weights.hazard)
       : base.weights.hazard,
@@ -156,13 +146,6 @@ export function toSearchProfile(
     const value = areaIn[key]
     if (value.length > 0) Object.assign(hard, { [key]: [...new Set(value)] })
     else delete hard[key]
-  }
-  // 我們每一輪都把 client 的值送上去，所以回來的空陣列代表「使用者/agent 取消了避開」，
-  // 而不是後端沒有這個概念 —— 直接刪掉欄位，別留一個空陣列讓 filter 誤以為有條件。
-  // listing 整個缺席才是「後端不認識這個欄位」，那種情況維持 base 不動。
-  if (listing) {
-    if (listing.avoidFengshui.length > 0) hard.avoidFengshui = [...listing.avoidFengshui]
-    else delete hard.avoidFengshui
   }
   // mode 必須在預算對應**之前**決定：兩種模式的預算來自不同欄位、單位差三個數量級，
   // 用錯就是「兩千萬」被當成月租，結果直接 0 筆。

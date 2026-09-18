@@ -29,10 +29,8 @@ const clampWeight = (v: number): number => (v < 0 ? 0 : v > 100 ? 100 : v)
 /**
  * 把 0..100 的權重 clamp 後正規化為總和 1。
  *
- * 全為 0 時退回「預設權重的正規化結果」而不是無差別等權：等權會把 fengshui 也算進去，
- * 讓一個明確設為 0 的信仰性維度拿到 1/8 的比重，違反「風水必須 opt-in」與
- * 「未開啟風水時排序與加入本功能前逐筆相同」兩條不變量。
- * DEFAULT_PROFILE 的 fengshui 是 0，其餘七維同值，因此這條退路等於七維各 1/7、風水 0。
+ * 全為 0 時退回「預設權重的正規化結果」而不是無差別等權，避免使用者把滑桿全拉到 0
+ * 時排序突然變成八維均分。
  */
 export function normalizeWeights(
   w: Record<WeightKey, number>,
