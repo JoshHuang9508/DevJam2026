@@ -233,12 +233,24 @@ export async function fetchCached(
     headers: options.headers,
     signal: AbortSignal.timeout(options.timeoutMs ?? 120_000),
   })
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText} — ${url}`)
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText} — ${redactUrl(url)}`)
   const buffer = await response.arrayBuffer()
 
   mkdirSync(dirname(cachePath), { recursive: true })
   writeFileSync(cachePath, Buffer.from(buffer))
   return buffer
+}
+
+function redactUrl(input: string): string {
+  try {
+    const url = new URL(input)
+    for (const key of ['Authorization', 'api_key', 'key', 'token']) {
+      if (url.searchParams.has(key)) url.searchParams.set(key, '[redacted]')
+    }
+    return url.toString()
+  } catch {
+    return input
+  }
 }
 
 function toArrayBuffer(buffer: Buffer): ArrayBuffer {

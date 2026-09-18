@@ -33,8 +33,8 @@ export class DeterministicAgentRuntime implements AgentRuntime {
     }
 
     const message = updated
-      ? "目前沒有可用的模型服務，已用規則式解析把你這句話裡的條件寫進搜尋設定，右側是依這些條件排出的物件。若要更細的說明，請設定模型 API key 後再試。"
-      : "目前沒有可用的模型服務，規則式解析沒有從這句話裡抓到可用的條件。可以直接說地區、預算、坪數或屋齡，例如「臺北市大安區，總價 2500 萬以內」。";
+      ? "已用免費的規則式模式把這句話裡的條件寫進搜尋設定，右側是依這些條件排出的物件。"
+      : "規則式模式沒有從這句話裡抓到可用的條件。可以直接說地區、預算、坪數或屋齡，例如「臺北市大安區，總價 2500 萬以內」。";
     yield { type: "message.delta", delta: message, ...meta() };
     yield { type: "message.completed", message, ...meta() };
   }

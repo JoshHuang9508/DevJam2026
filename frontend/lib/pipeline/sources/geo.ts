@@ -280,8 +280,8 @@ const SAVE_EVERY = 200
  * 彭佳嶼 122.08°E，各留一點邊。
  *
  * 需要這個檢查是因為實價登錄有些「門牌」其實是地號（例如「塘岐段684地號」），
- * Google 找不到對應街址時會挑一個字面相近的地方 —— 實測有一筆連江縣的地號
- * 被配到江蘇（31.84°N）。落在範圍外一律當成查無，退回行政區重心。
+   * 地理編碼服務可能挑到字面相近的異地地名。落在範圍外一律當成查無，
+   * 退回行政區重心。
  */
 const TAIWAN_BOUNDS = { minLat: 21.5, maxLat: 26.5, minLng: 118.1, maxLng: 122.2 }
 
@@ -290,14 +290,6 @@ function inTaiwan(point: Point): boolean {
     && point.lng >= TAIWAN_BOUNDS.minLng && point.lng <= TAIWAN_BOUNDS.maxLng
 }
 
-/**
- * 實價登錄完全沒有座標，只有門牌 —— 這是整條 pipeline 唯一需要付費 API 的地方。
- *
- * 注意這把金鑰不能用 NEXT_PUBLIC_GOOGLE_MAPS_API_KEY —— 那把設了 HTTP referrer 限制，
- * 從伺服器呼叫會被 REQUEST_DENIED。要另外開一把用 IP 限制的。
- *
- * 查不到就回 null，退路交給呼叫端（見 pipeline 的兩段式定位）。
- */
 export class Geocoder {
   private readonly cache: GeocodeCache
   private hits = 0
@@ -305,12 +297,15 @@ export class Geocoder {
   private failures = 0
   private budgetSpent = 0
   private unsaved = 0
+  private lastRequestAt = 0
 
   constructor(
     private readonly cachePath: string,
-    private readonly apiKey?: string,
-    /** 一次執行最多新查幾筆。Google Geocoding 約 US$5/1000，這是防呆用的花費上限。 */
-    private readonly budget = Number.POSITIVE_INFINITY,
+    private readonly baseUrl = 'https://nominatim.openstreetmap.org',
+    private readonly userAgent = 'anjia-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)',
+    private readonly email?: string,
+    private readonly budget = 250,
+    private readonly minIntervalMs = 1100,
   ) {
     this.cache = existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf-8')) as GeocodeCache : {}
   }
@@ -335,46 +330,48 @@ export class Geocoder {
       this.hits += 1
       return this.cache[key]
     }
-    if (!this.apiKey || this.budgetExhausted) return null
+    if (this.budgetExhausted) return null
 
     this.budgetSpent += 1
-    const point = await this.callGoogle(key)
-    this.cache[key] = point
+    const point = await this.callNominatim(key)
     if (point) this.misses += 1
     else this.failures += 1
-
-    // 每 200 筆就落地一次。geocoding 是**付費**的，把上萬筆結果全放在記憶體裡
-    // 等跑完才寫，中途一掛掉就是錢花了、一筆都沒留下，重跑要再付一次。
-    this.unsaved += 1
-    if (this.unsaved >= SAVE_EVERY) this.save()
-    return point
+    if (point !== undefined) {
+      this.cache[key] = point
+      this.unsaved += 1
+      if (this.unsaved >= SAVE_EVERY) this.save()
+    }
+    return point ?? null
   }
 
-  private async callGoogle(address: string): Promise<Point | null> {
-    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json')
-    url.searchParams.set('address', address)
-    url.searchParams.set('region', 'tw')
-    url.searchParams.set('language', 'zh-TW')
-    url.searchParams.set('key', this.apiKey as string)
+  private async callNominatim(address: string): Promise<Point | null | undefined> {
+    const elapsed = Date.now() - this.lastRequestAt
+    if (elapsed < this.minIntervalMs) await new Promise((resolve) => setTimeout(resolve, this.minIntervalMs - elapsed))
+
+    const url = new URL('search', this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`)
+    url.searchParams.set('q', address)
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('countrycodes', 'tw')
+    url.searchParams.set('limit', '1')
+    if (this.email) url.searchParams.set('email', this.email)
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(15_000) })
-      if (!response.ok) return null
-      const json = await response.json() as {
-        status: string
-        results?: { geometry?: { location?: { lat: number; lng: number } } }[]
+      this.lastRequestAt = Date.now()
+      const response = await fetch(url, {
+        headers: { accept: 'application/json', 'accept-language': 'zh-TW', 'user-agent': this.userAgent },
+        signal: AbortSignal.timeout(20_000),
+      })
+      if (response.status === 403 || response.status === 429) {
+        throw new Error(`Nominatim ${response.status} —— 請確認識別資訊與使用頻率符合服務政策`)
       }
-      // 這兩種是設定或額度問題，不是「這個地址查不到」。繼續打下去只會把幾千筆
-      // 全部靜靜地退成近似值，所以直接讓整條 pipeline 停下來。
-      if (json.status === 'OVER_QUERY_LIMIT' || json.status === 'REQUEST_DENIED') {
-        throw new Error(`Google Geocoding ${json.status} —— 檢查金鑰是否啟用 Geocoding API 且沒有 referrer 限制`)
-      }
-      const location = json.results?.[0]?.geometry?.location
-      if (!location || !Number.isFinite(location.lat)) return null
-      const point = { lat: location.lat, lng: location.lng }
+      if (!response.ok) return undefined
+      const result = (await response.json() as { lat: string; lon: string }[])[0]
+      if (!result) return null
+      const point = { lat: Number(result.lat), lng: Number(result.lon) }
+      if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null
       return inTaiwan(point) ? point : null
     } catch (error) {
-      if (error instanceof Error && error.message.includes('Google Geocoding')) throw error
-      return null
+      if (error instanceof Error && error.message.includes('Nominatim')) throw error
+      return undefined
     }
   }
 

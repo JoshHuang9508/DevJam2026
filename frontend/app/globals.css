@@ -22,6 +22,3 @@ body { @apply bg-neutral-50 text-neutral-900 antialiased; }
 }
 .overflow-x-auto::-webkit-scrollbar-thumb:hover,
 .overflow-y-auto::-webkit-scrollbar-thumb:hover { background: theme(--color-neutral-400); }
-
-/* Google Maps 的 InfoWindow / POI tooltip 用不到，避免殘留樣式蓋到自訂卡片 */
-.gm-style img { max-width: none; }

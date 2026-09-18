@@ -1,4 +1,4 @@
-/** 地圖視角。西南／東北兩角，與 Google Maps 的 LatLngBounds 對應。 */
+/** 地圖視角的西南／東北兩角。 */
 export interface MapBounds {
   south: number
   west: number
