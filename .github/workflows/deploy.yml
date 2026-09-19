@@ -48,6 +48,8 @@ jobs:
           pnpm build
 
       - name: Validate production Compose file
+        env:
+          BASIC_AUTH_FILE: /tmp/devjam-ci-placeholder.htpasswd
         run: docker compose -f docker-compose.prod.yml config --quiet
 
   deploy:
@@ -69,9 +71,11 @@ jobs:
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_KNOWN_HOSTS: ${{ vars.DEPLOY_KNOWN_HOSTS }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          BASIC_AUTH_USER: ${{ vars.BASIC_AUTH_USER }}
+          BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}
         run: |
           set -euo pipefail
-          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_KNOWN_HOSTS DEPLOY_SSH_KEY; do
+          for name in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_KNOWN_HOSTS DEPLOY_SSH_KEY BASIC_AUTH_USER BASIC_AUTH_PASSWORD; do
             if [[ -z ${!name:-} ]]; then
               echo "::error::$name is not configured"
               exit 1
@@ -127,13 +131,24 @@ jobs:
         shell: bash
         env:
           PUBLIC_URL: ${{ vars.PUBLIC_URL }}
+          BASIC_AUTH_USER: ${{ vars.BASIC_AUTH_USER }}
+          BASIC_AUTH_PASSWORD: ${{ secrets.BASIC_AUTH_PASSWORD }}
         run: |
           set -euo pipefail
           base="${PUBLIC_URL%/}"
+          unauthenticated_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --retry 5 --retry-all-errors --retry-delay 3 \
+            --max-time 30 "$base/")
+          if [[ $unauthenticated_status != 401 ]]; then
+            echo "::error::Public endpoint is not protected by Basic Auth"
+            exit 1
+          fi
           curl --fail --silent --show-error \
+            --user "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" \
             --retry 5 --retry-all-errors --retry-delay 3 \
             --max-time 30 "$base/" >/dev/null
           body=$(curl --fail --silent --show-error \
+            --user "$BASIC_AUTH_USER:$BASIC_AUTH_PASSWORD" \
             --retry 5 --retry-all-errors --retry-delay 3 \
             --max-time 30 "$base/api/agent/session")
           node -e '

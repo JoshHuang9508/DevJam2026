@@ -15,6 +15,16 @@ Host paths:
 - Optional Compose environment: `/home/e0pwr/.config/devjam2026/env`
 - Last successful commit: `/home/e0pwr/.local/state/devjam2026/last-successful-sha`
 
+Production secrets stay outside the checkout:
+
+- DeepSeek and Compose settings: `/home/e0pwr/.config/devjam2026/env` (mode 0600)
+- Nginx APR1 password file: `/home/e0pwr/.config/devjam2026/.htpasswd` (mode 0600)
+
+Cloudflare sends web traffic to `127.0.0.1:3000`, where the Nginx `gateway`
+service enforces Basic Auth before forwarding to the unexposed `web` service.
+The `/healthz` endpoint is the only unauthenticated route and returns only
+`200 ok` for container/deployment health checks.
+
 The GitHub repository needs these Actions variables:
 
 - `DEPLOY_HOST`

@@ -16,6 +16,14 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       CUSTOM_OPENAI_BASE_URL: ${CUSTOM_OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
       CUSTOM_OPENAI_API_KEY: ${CUSTOM_OPENAI_API_KEY:-ollama}
+      CUSTOM_OPENAI_MODEL_NAME: ${CUSTOM_OPENAI_MODEL_NAME:-Custom OpenAI-compatible model}
+      CUSTOM_OPENAI_CONTEXT_WINDOW: ${CUSTOM_OPENAI_CONTEXT_WINDOW:-128000}
+      CUSTOM_OPENAI_MAX_TOKENS: ${CUSTOM_OPENAI_MAX_TOKENS:-32000}
+      CUSTOM_OPENAI_REASONING: ${CUSTOM_OPENAI_REASONING:-false}
+      CUSTOM_OPENAI_SUPPORTS_DEVELOPER_ROLE: ${CUSTOM_OPENAI_SUPPORTS_DEVELOPER_ROLE:-false}
+      CUSTOM_OPENAI_SUPPORTS_REASONING_EFFORT: ${CUSTOM_OPENAI_SUPPORTS_REASONING_EFFORT:-false}
+      CUSTOM_OPENAI_SUPPORTS_USAGE_IN_STREAMING: ${CUSTOM_OPENAI_SUPPORTS_USAGE_IN_STREAMING:-false}
+      CUSTOM_OPENAI_SUPPORTS_STRICT_MODE: ${CUSTOM_OPENAI_SUPPORTS_STRICT_MODE:-false}
       FRONTEND_URL: http://web:3000
       TWINKLE_API_KEY: ${TWINKLE_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -50,14 +58,31 @@ services:
       ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
     volumes:
       - app-data:/app/data:ro
-    ports:
-      - "${APP_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{const j=await r.json();process.exit(r.ok&&j.backendUp&&j.listingsDb?0:1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  gateway:
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:8080"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${BASIC_AUTH_FILE:-./deploy/.htpasswd}:/etc/nginx/auth/.htpasswd:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
   data-refresh:
     profiles: ["tools"]

@@ -65,15 +65,27 @@ compose+=(-f "$COMPOSE_FILE")
 deploy_and_check() {
   local sha="$1"
   local session
+  local unauthenticated_status
 
   git reset --hard "$sha" || return
   git clean -ffd || return
   "${compose[@]}" up -d --build --remove-orphans --wait --wait-timeout 240 || return
-  curl --fail --silent --show-error --max-time 30 \
-    http://127.0.0.1:3000/ >/dev/null || return
-  session=$(curl --fail --silent --show-error --max-time 30 \
-    http://127.0.0.1:3000/api/agent/session) || return
-  [[ $session == *'"backendUp":true'* && $session == *'"listingsDb":true'* ]]
+
+  if "${compose[@]}" config --services | grep -Fxq gateway; then
+    curl --fail --silent --show-error --max-time 30 \
+      http://127.0.0.1:3000/healthz >/dev/null || return
+    unauthenticated_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+      --max-time 30 http://127.0.0.1:3000/) || return
+    [[ $unauthenticated_status == 401 ]] || return
+  else
+    # Backward-compatible rollback check for revisions before the gateway existed.
+    curl --fail --silent --show-error --max-time 30 \
+      http://127.0.0.1:3000/ >/dev/null || return
+  fi
+
+  session=$("${compose[@]}" exec -T web node -e \
+    "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())}).catch(()=>process.exit(1))") || return
+  [[ $session == *'"backendUp":true'* && $session == *'"listingsDb":true'* && $session == *'"agentRuntime":"pi-agent-core"'* ]]
 }
 
 echo "Deploying $target_sha"
