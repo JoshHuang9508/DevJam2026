@@ -72,7 +72,7 @@ services:
     ports:
       # 只綁 loopback：cloudflared 跑在同一台主機上，走 127.0.0.1 就好。
       # 綁 0.0.0.0 會讓 GCP 防火牆成為唯一一道防線。
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{const j=await r.json();process.exit(r.ok&&j.backendUp&&j.listingsDb?0:1)}).catch(()=>process.exit(1))"]
       interval: 15s

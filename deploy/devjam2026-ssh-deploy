@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+# Installed at /home/e0pwr/bin/devjam2026-ssh-deploy and selected with an
+# authorized_keys forced-command rule. The corresponding key cannot open an
+# interactive shell or run an arbitrary command.
+
+export PATH="/usr/local/bin:/usr/bin:/bin"
+
+readonly REPOSITORY_URL="https://github.com/JoshHuang9508/DevJam2026.git"
+readonly DEPLOY_DIR="/home/e0pwr/deployments/DevJam2026"
+readonly STATE_DIR="/home/e0pwr/.local/state/devjam2026"
+readonly LAST_GOOD_FILE="$STATE_DIR/last-successful-sha"
+readonly LOCK_FILE="/tmp/devjam2026-deploy.lock"
+readonly COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
+
+if [[ ${SSH_ORIGINAL_COMMAND:-} =~ ^deploy\ ([0-9a-f]{40})$ ]]; then
+  readonly target_sha="${BASH_REMATCH[1]}"
+else
+  echo "This SSH key is restricted to DevJam deployments." >&2
+  exit 64
+fi
+
+exec 9>"$LOCK_FILE"
+if ! flock --nonblock 9; then
+  echo "another DevJam deployment is already running" >&2
+  exit 75
+fi
+
+mkdir -p "$STATE_DIR" "$(dirname -- "$DEPLOY_DIR")"
+
+if [[ ! -d "$DEPLOY_DIR/.git" ]]; then
+  if [[ -e "$DEPLOY_DIR" ]]; then
+    echo "$DEPLOY_DIR exists but is not a Git checkout" >&2
+    exit 73
+  fi
+  git clone --no-checkout "$REPOSITORY_URL" "$DEPLOY_DIR"
+fi
+
+cd "$DEPLOY_DIR"
+git remote set-url origin "$REPOSITORY_URL"
+git fetch --force --prune origin "+refs/heads/main:refs/remotes/origin/main"
+
+if ! git cat-file -e "$target_sha^{commit}" 2>/dev/null; then
+  echo "commit $target_sha is not available from origin" >&2
+  exit 65
+fi
+
+if ! git merge-base --is-ancestor "$target_sha" origin/main; then
+  echo "refusing to deploy a commit that is not on origin/main" >&2
+  exit 65
+fi
+
+previous_sha=""
+if [[ -f "$LAST_GOOD_FILE" ]]; then
+  previous_sha=$(<"$LAST_GOOD_FILE")
+fi
+
+compose=(docker compose --project-name devjam2026 --project-directory "$DEPLOY_DIR")
+if [[ -f /home/e0pwr/.config/devjam2026/env ]]; then
+  compose+=(--env-file /home/e0pwr/.config/devjam2026/env)
+fi
+compose+=(-f "$COMPOSE_FILE")
+
+deploy_and_check() {
+  local sha="$1"
+  local session
+
+  git reset --hard "$sha" || return
+  git clean -ffd || return
+  "${compose[@]}" up -d --build --remove-orphans --wait --wait-timeout 240 || return
+  curl --fail --silent --show-error --max-time 30 \
+    http://127.0.0.1:3000/ >/dev/null || return
+  session=$(curl --fail --silent --show-error --max-time 30 \
+    http://127.0.0.1:3000/api/agent/session) || return
+  [[ $session == *'"backendUp":true'* && $session == *'"listingsDb":true'* ]]
+}
+
+echo "Deploying $target_sha"
+if ! deploy_and_check "$target_sha"; then
+  echo "deployment failed" >&2
+  "${compose[@]}" ps >&2 || true
+
+  if [[ $previous_sha =~ ^[0-9a-f]{40}$ && $previous_sha != "$target_sha" ]]; then
+    echo "Rolling back to $previous_sha" >&2
+    deploy_and_check "$previous_sha"
+  fi
+  exit 1
+fi
+
+printf '%s\n' "$target_sha" >"$LAST_GOOD_FILE"
+docker image prune --force >/dev/null
+"${compose[@]}" ps
+echo "Deployment succeeded: $target_sha"
