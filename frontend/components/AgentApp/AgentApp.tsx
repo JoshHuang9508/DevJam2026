@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListingDeck } from '@/components/ListingList/ListingDeck'
-import { ListingList } from '@/components/ListingList/ListingList'
+import { ListingDetail } from '@/components/ListingDetail/ListingDetail'
 import { MapView } from '@/components/MapView/MapView'
 import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
 import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
@@ -45,7 +45,7 @@ export function AgentApp() {
   // 共用一個的話點選後滑鼠一移開卡片就消失，「常駐」就失效了。
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [listOpen, setListOpen] = useState(true)
+  const [detailOpen, setDetailOpen] = useState(false)
   // md（768px）以下改單欄 + 分頁；桌面版忽略這個狀態，三欄照常並排。
   // 物件列表在行動版不是獨立分頁，而是併進地圖下半部的 ListingDeck。
   const [mobileTab, setMobileTab] = useState<'chat' | 'map'>('chat')
@@ -72,10 +72,20 @@ export function AgentApp() {
   useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   // 結果變動時清除選取：選中的物件可能已經不在新結果裡了
-  useEffect(() => { setSelectedId(null) }, [s.results])
+  useEffect(() => { setSelectedId(null); setDetailOpen(false) }, [s.results])
+
+  const selectListing = (id: string | null) => {
+    setSelectedId(id)
+    setDetailOpen(id !== null)
+  }
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedId(null) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedId(null)
+        setDetailOpen(false)
+      }
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
@@ -186,6 +196,8 @@ export function AgentApp() {
 
   const started = messages.length > 0
   const isMobile = useIsMobile()
+  const selectedIndex = s.results.findIndex((listing) => listing.id === selectedId)
+  const selectedListing = selectedIndex === -1 ? null : s.results[selectedIndex]
 
   return (
     <main className={`relative flex h-[100dvh] overflow-hidden bg-neutral-50 md:pb-0 ${started ? 'pb-[calc(3.25rem+env(safe-area-inset-bottom))]' : ''}`}>
@@ -362,7 +374,7 @@ export function AgentApp() {
             hoveredId={s.hoveredId}
             selectedId={selectedId}
             onHover={s.setHoveredId}
-            onSelect={setSelectedId}
+            onSelect={selectListing}
             showCard={!isMobile}
             fitToken={s.fitToken}
           />
@@ -371,22 +383,15 @@ export function AgentApp() {
         {/* 行動版把物件併進地圖下半部：左右滑切上下一筆，切換時 selectedId 變動，
             MapView 既有的選取動畫就會把相機帶到那一筆。 */}
         {isMobile && (
-          <ListingDeck results={s.results} selectedId={selectedId} onSelect={setSelectedId} />
+          <ListingDeck results={s.results} selectedId={selectedId} onSelect={selectListing} />
         )}
       </section>
 
-      {/* 右欄：可收納物件列表，只在桌面版存在（行動版走 ListingDeck）。
-          包裝層用 display:contents，讓 ListingList 自己的根節點在桌面版仍直接是
-          main 的 flex 子項，版面跟改動前完全一樣。 */}
       <div className="hidden md:contents">
-        <ListingList
-          results={s.results}
-          hoveredId={s.hoveredId}
-          selectedId={selectedId}
-          onHover={s.setHoveredId}
-          onSelect={setSelectedId}
-          open={listOpen}
-          onToggle={() => setListOpen((v) => !v)}
+        <ListingDetail
+          listing={selectedListing}
+          open={detailOpen}
+          onToggle={() => setDetailOpen((open) => !open)}
         />
       </div>
     </main>

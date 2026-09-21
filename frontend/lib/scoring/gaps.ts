@@ -21,7 +21,11 @@ function median(values: number[]): number | null {
 export function fillDataGaps(pool: ListingWithFeatures[]): FilledListing[] {
   if (pool.length === 0) return []
 
-  const keys = Object.keys(pool[0].features) as FeatureKey[]
+  const keys = [...new Set<FeatureKey>([
+    ...Object.keys(pool[0].features) as FeatureKey[],
+    'floodIncidents500',
+    'liquefactionLevel',
+  ])]
   const byDistrict = new Map<string, ListingWithFeatures[]>()
   for (const l of pool) {
     const k = `${l.city}|${l.district}`
@@ -59,7 +63,7 @@ export function fillDataGaps(pool: ListingWithFeatures[]): FilledListing[] {
       features[key] =
         districtMedian.get(`${listing.city}|${listing.district}|${key}`) ??
         globalMedian.get(key) ??
-        0
+        (key === 'floodIncidents500' ? 4 : key === 'liquefactionLevel' ? 2 : 0)
     }
     return { listing, features, dataGaps }
   })

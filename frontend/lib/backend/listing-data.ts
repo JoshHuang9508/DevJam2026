@@ -38,7 +38,7 @@ export async function loadPool(mode: Mode, cities?: string[]): Promise<ListingWi
     const features: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(row)) {
       if (key === 'listing_id') continue
-      const name = key.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
+      const name = key.replace(/_([a-z0-9])/g, (_, character: string) => character.toUpperCase())
       if (listingKeys.has(name)) listing[name] = value
       else features[name] = value
     }

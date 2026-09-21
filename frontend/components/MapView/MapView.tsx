@@ -292,7 +292,7 @@ export function MapView({
 
   return (
     <div ref={containerRef} className="relative h-full w-full bg-neutral-200" data-testid="map">
-      <div ref={mapDivRef} style={{ position: 'absolute', inset: 0 }} />
+      <div ref={mapDivRef} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       {showCard && shown && anchor && containerSize && (
         <MapCard
           key={shown.id}
@@ -301,6 +301,7 @@ export function MapView({
           anchor={anchor}
           container={containerSize}
           onHover={onHover}
+          onViewDetails={onSelect}
         />
       )}
     </div>

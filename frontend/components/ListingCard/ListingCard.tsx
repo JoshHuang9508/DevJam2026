@@ -34,18 +34,9 @@ interface BodyProps {
   listing: ScoredListing
   rank: number
   expanded: boolean
-  /**
-   * 有傳才畫「查看詳細資料」切換文字。列表卡片不傳（永遠展開），
-   * 地圖卡片傳，因為浮在地圖上的東西一開始就攤開整張評分表會蓋掉太多地圖。
-   */
-  onToggleExpanded?: () => void
 }
 
-/**
- * 卡片內容本體，列表卡片與地圖卡片共用 —— 兩邊只差外框（列表是可點選的 article，
- * 地圖是帶關閉鈕的浮層）與 expanded 預設值，內容一模一樣才不會有兩套要各自維護的排版。
- */
-export function ListingCardBody({ listing, rank, expanded, onToggleExpanded }: BodyProps) {
+export function ListingCardBody({ listing, rank, expanded }: BodyProps) {
   const f = listing.features
   const { best, worst } = extremes(listing)
 
@@ -69,24 +60,10 @@ export function ListingCardBody({ listing, rank, expanded, onToggleExpanded }: B
       <p className="mt-1.5 text-[15px] font-semibold tabular-nums text-neutral-900">
         {formatPrice(listing)}
       </p>
-      {/* 坪數/格局/屋齡/樓層放整行 —— 塞進三欄格線會在「4房2廳3衛」中間斷行 */}
       <p className="mt-1 truncate text-[11px] text-neutral-500">
         {formatArea(listing.area)}・{listing.layout}・屋齡 {listing.age.toFixed(0)} 年・
         {listing.floor}/{listing.totalFloor} 樓
       </p>
-
-      {onToggleExpanded && (
-        <button
-          type="button"
-          // 卡片外框（地圖卡片沒有，但列表卡片整張都是 role="button"）不該吃到這一下
-          onClick={(event) => { event.stopPropagation(); onToggleExpanded() }}
-          aria-expanded={expanded}
-          data-testid="listing-detail-toggle"
-          className="mt-2 text-xs text-neutral-500 underline underline-offset-2 transition hover:text-neutral-900"
-        >
-          {expanded ? '收合詳細資料' : '查看詳細資料'}
-        </button>
-      )}
 
       {expanded && (
         <>
