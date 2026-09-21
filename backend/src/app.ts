@@ -14,6 +14,7 @@ import { urbanPlanCitySchema, urbanPlanReportSchema } from "./domain/urban-plan/
 import { UrbanPlanCoverageError } from "./providers/urban-plan/index.js";
 import type { UrbanPlanProvider } from "./providers/urban-plan/types.js";
 import type { AppConfig } from "./config/env.js";
+import type { createListingsDatabase } from "./database/listings.js";
 import type { AgentService } from "./services/agent.service.js";
 import type { PreferenceService } from "./services/preference.service.js";
 import type { RecommendationService } from "./services/recommendation.service.js";
@@ -26,6 +27,7 @@ export interface AppDependencies {
   recommendations: RecommendationService;
   agent: AgentService;
   urbanPlan: UrbanPlanProvider;
+  listingsDb: ReturnType<typeof createListingsDatabase>;
   runtimeName: string;
 }
 
@@ -54,6 +56,19 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   await app.register(swaggerUi, { routePrefix: "/docs" });
 
   app.get("/health", { schema: { response: { 200: z.object({ status: z.literal("ok"), runtime: z.string() }) } } }, async () => ({ status: "ok" as const, runtime: deps.runtimeName }));
+  app.get("/listings/status", { config: { rateLimit: false } }, async () => ({ available: deps.listingsDb.available() }));
+  app.get("/listings/rows", { config: { rateLimit: false }, schema: { querystring: z.object({ mode: z.enum(["sale", "rent"]) }) } }, async (request, reply) => {
+    if (!deps.listingsDb.available()) return reply.serviceUnavailable("物件資料庫尚未建立");
+    return deps.listingsDb.rows(request.query.mode);
+  });
+  app.get("/listings/districts", { config: { rateLimit: false } }, async (_request, reply) => {
+    if (!deps.listingsDb.available()) return reply.serviceUnavailable("物件資料庫尚未建立");
+    return deps.listingsDb.districts();
+  });
+  app.post("/listings/pool", { config: { rateLimit: false }, schema: { body: z.object({ mode: z.enum(["sale", "rent"]), cities: z.array(z.string()).default([]) }) } }, async (request, reply) => {
+    if (!deps.listingsDb.available()) return reply.serviceUnavailable("物件資料庫尚未建立");
+    return deps.listingsDb.pool(request.body.mode, request.body.cities);
+  });
   app.get("/openapi.json", { schema: { hide: true } }, async () => app.swagger());
 
   app.post("/urban-plan", {

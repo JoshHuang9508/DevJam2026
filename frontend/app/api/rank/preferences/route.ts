@@ -4,7 +4,7 @@ import { resolvePlace } from '@/lib/backend/place-anchor'
 import { toSearchProfile } from '@/lib/backend/profile-bridge'
 import { recallProfile } from '@/lib/backend/profile-cache'
 import type { PreferenceState } from '@/lib/backend/types'
-import { loadPool } from '@/lib/db/client'
+import { loadPool } from '@/lib/backend/listing-data'
 import { rankWithRelaxation } from '@/lib/scoring/relax'
 import { DEFAULT_PROFILE, WEIGHT_KEYS, type Mode } from '@/lib/types/profile'
 import type { ScoredListing } from '@/lib/types/listing'
@@ -48,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!body?.preferences) {
     return NextResponse.json({ error: '缺少 preferences' }, { status: 400 })
   }
-  if (!listingsDbAvailable()) {
+  if (!(await listingsDbAvailable())) {
     return NextResponse.json({ error: '物件資料庫尚未建立' }, { status: 503 })
   }
 
@@ -66,9 +66,9 @@ export async function POST(request: Request): Promise<Response> {
     // 「靠近土城」「高雄附近」這類模糊地點。座標一律查 districts 表的真實重心解析，
     // 不讓模型自己給經緯度 —— 那種錯誤不會報錯，只會安靜地回傳錯誤區域的房子。
     // 解析不到就照實回報 unresolvedPlace，不硬猜一個地方。
-    let anchor: ReturnType<typeof resolvePlace> = null
+    let anchor: Awaited<ReturnType<typeof resolvePlace>> = null
     if (body.near?.place) {
-      anchor = resolvePlace(body.near.place, body.near.radiusKm)
+      anchor = await resolvePlace(body.near.place, body.near.radiusKm)
       if (anchor) {
         profile.hard = {
           ...profile.hard,
@@ -79,10 +79,10 @@ export async function POST(request: Request): Promise<Response> {
 
     // 使用者指定的地區查不到就照實說，不再偷偷改成不限行政區 —— 那會讓 agent 拿著
     // 一堆別區的物件去回答「大安區有什麼」，比回答查不到更糟。
-    const coverage = areaCoverageNote(mode, profile.hard)
+    const coverage = await areaCoverageNote(mode, profile.hard)
     const notes = coverage ? [coverage] : []
 
-    const { results, relaxations } = rankWithRelaxation(profile, loadPool(mode, profile.hard.cities))
+    const { results, relaxations } = rankWithRelaxation(profile, await loadPool(mode, profile.hard.cities))
 
     return NextResponse.json({
       mode,

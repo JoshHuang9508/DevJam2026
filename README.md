@@ -12,8 +12,8 @@ Repo 是兩個各自獨立的套件：Next.js 前端在 [`frontend/`](frontend/)
 不需要 API key，也不需要先安裝 Node.js、PostgreSQL 或 Google Maps：
 
 ```bash
-docker compose up -d --build
-docker compose ps
+docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml ps
 ```
 
 開啟 http://localhost:3000。預設使用 SQLite 示範資料、記憶體 session、規則式對話模式與
@@ -21,14 +21,14 @@ OpenStreetMap 底圖；只有前端的 3000 port 會對外開放。
 
 ```bash
 # 看日誌
-docker compose logs -f web backend
+docker compose -f docker-compose.prod.yml logs -f web backend
 
 # 停止
-docker compose down
+docker compose -f docker-compose.prod.yml down
 
 # 清掉持久化資料並重新產生示範資料
-docker compose down -v
-docker compose up -d --build
+docker compose -f docker-compose.prod.yml down -v
+docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 複製 [`.env.example`](.env.example) 成 `.env` 可以改 port 或開啟選用整合，但零設定就能跑。
@@ -41,7 +41,7 @@ docker compose up -d --build
 | Google Geocoding | OpenStreetMap Nominatim | 不需要 |
 | Gemini 對話模型 | 本機 deterministic parser | 不需要 |
 | PostgreSQL session | 容器記憶體 | 不需要 |
-| 物件資料庫 | SQLite named volume | 不需要 |
+| 物件資料庫 | 後端讀取 SQLite named volume | 不需要 |
 
 地圖會顯示 OpenStreetMap attribution，也可用 `NEXT_PUBLIC_MAP_STYLE_URL` 改接自架 MapLibre style。
 Nominatim 每次只會單線查詢、兩次請求至少間隔 1.1 秒、預設每輪最多新查
@@ -63,8 +63,7 @@ CUSTOM_OPENAI_API_KEY=ollama
 ### 更新真實資料
 
 ```bash
-docker compose --profile tools run --rm data-refresh
-docker compose restart web
+docker compose -f docker-compose.prod.yml --profile tools run --rm data-refresh
 ```
 
 可在 `.env` 用 `GEOCODE_BUDGET` 控制這次最多新增幾筆定位，設成 `0` 可完全略過地址 API。
@@ -74,16 +73,19 @@ docker compose restart web
 兩個資料夾各開一個終端機。
 
 ```bash
-# 1. 推薦後端 → http://localhost:3001（Swagger UI 在 /docs）
-cd backend && pnpm install && pnpm dev
-
-# 2. 前端
+# 1. 建立前端資料 pipeline 使用的 SQLite
 cd frontend
 pnpm install
-cp .env.example .env.local
 mkdir data                   # drizzle-kit 不會自己建目錄
 pnpm db:push                 # 建立 SQLite schema
 pnpm db:seed                 # 灌入示範資料
+
+# 2. 後端 → http://localhost:3001（Swagger UI 在 /docs）
+cd ../backend && pnpm install && pnpm dev
+
+# 3. 另一個終端機啟動前端
+cd frontend
+cp .env.example .env.local
 pnpm dev
 ```
 

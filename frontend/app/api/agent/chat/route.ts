@@ -3,7 +3,7 @@ import { areaCoverageNote, listingsDbAvailable } from '@/lib/backend/listings'
 import { toPreferencePatch, toSearchProfile } from '@/lib/backend/profile-bridge'
 import { rememberProfile } from '@/lib/backend/profile-cache'
 import { readAgentEvents } from '@/lib/backend/sse-client'
-import { loadPool } from '@/lib/db/client'
+import { loadPool } from '@/lib/backend/listing-data'
 import { parseProfile } from '@/lib/profile/schema'
 import { rankWithRelaxation } from '@/lib/scoring/relax'
 import { sseEvent } from '@/lib/sse'
@@ -50,13 +50,13 @@ export async function POST(request: Request): Promise<Response> {
        * PreferenceState -> 物件排名。使用者指定的地區在這裡是不可協商的：查不到就
        * 回一句說明，不再像以前那樣把行政區條件刪掉改成全域搜尋。
        */
-      const rankListings = (profile: SearchProfile): { ranked: RankResult; note: string | null } => ({
-        ranked: rankWithRelaxation(profile, loadPool(profile.mode, profile.hard.cities)),
-        note: areaCoverageNote(profile.mode, profile.hard),
+      const rankListings = async (profile: SearchProfile): Promise<{ ranked: RankResult; note: string | null }> => ({
+        ranked: rankWithRelaxation(profile, await loadPool(profile.mode, profile.hard.cities)),
+        note: await areaCoverageNote(profile.mode, profile.hard),
       })
 
-      const emit = (profile: SearchProfile) => {
-        const { ranked, note } = rankListings(profile)
+      const emit = async (profile: SearchProfile) => {
+        const { ranked, note } = await rankListings(profile)
         send('profile', profile)
         send('results', {
           ...ranked,
@@ -84,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
         // 當 base，否則它排出來的前三名跟畫面上的卡片會不一致（見 profile-cache）。
         rememberProfile(sessionId, clientProfile)
 
-        if (!listingsDbAvailable()) {
+        if (!(await listingsDbAvailable())) {
           send('error', { message: '物件資料庫尚未建立，請先執行 pnpm db:push && pnpm db:seed。' })
         }
 
@@ -97,7 +97,7 @@ export async function POST(request: Request): Promise<Response> {
             // 條件一變就重排。這是 agent 沒呼叫 rank_listings 時的來源
             // （例如它只更新了權重就直接回答）。
             case 'preferences.updated':
-              emit(toSearchProfile(event.preferences, clientProfile))
+              await emit(toSearchProfile(event.preferences, clientProfile))
               emittedResults = true
               break
 
@@ -107,7 +107,7 @@ export async function POST(request: Request): Promise<Response> {
             // agent 在講土城而地圖上是全台的房子。
             case 'listings.ranked': {
               const effective = parseProfile(event.effectiveProfile)
-              emit(effective)
+              await emit(effective)
               emittedResults = true
               break
             }
@@ -133,7 +133,7 @@ export async function POST(request: Request): Promise<Response> {
 
         // agent 這一輪沒動條件（例如只是問「這間屋齡多少」）時仍要給畫面一份結果，
         // 否則第一輪純提問會讓地圖一直空著。
-        if (!emittedResults) emit(clientProfile)
+        if (!emittedResults) await emit(clientProfile)
 
         send('done', {})
       } catch (error) {

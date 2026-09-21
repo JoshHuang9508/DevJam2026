@@ -16,7 +16,6 @@ ARG NEXT_PUBLIC_MAP_STYLE_URL=""
 ENV NEXT_PUBLIC_MAP_STYLE_URL=$NEXT_PUBLIC_MAP_STYLE_URL
 
 # data/app.db 有 gitignore，映像檔必須自己產生種子資料
-RUN pnpm db:push && pnpm db:seed
 RUN pnpm build
 
 # 資料 pipeline 需要 tsx 與完整 devDeps，所以從 prune 之前的狀態分支出去。
@@ -41,7 +40,6 @@ RUN groupadd -r app && useradd -r -g app app
 
 COPY --from=pruned --chown=app:app /app/node_modules ./node_modules
 COPY --from=build --chown=app:app /app/.next ./.next
-COPY --from=build --chown=app:app /app/data ./data
 COPY --from=build --chown=app:app /app/package.json ./package.json
 COPY --from=build --chown=app:app /app/next.config.ts ./next.config.ts
 COPY --from=build --chown=app:app /app/public ./public

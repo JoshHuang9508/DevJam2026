@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { loadPool } from '@/lib/db/client'
+import { loadPool } from '@/lib/backend/listing-data'
 import { compressedJson } from '@/lib/http/compress'
 import { parseProfile } from '@/lib/profile/schema'
 import { rankWithRelaxation } from '@/lib/scoring/relax'
@@ -23,7 +23,7 @@ export async function POST(request: Request): Promise<Response> {
   const limit = Number.isFinite(raw?.limit) ? Math.min(Math.max(Number(raw?.limit), 1), 500) : undefined
 
   try {
-    const pool = loadPool(profile.mode, profile.hard.cities)
+    const pool = await loadPool(profile.mode, profile.hard.cities)
     const ranked = rankWithRelaxation(profile, pool, limit ? { limit } : {})
     // 200 筆帶著 35 個 feature 與 8 維 breakdown 約 480 KB，壓縮後掉到十分之一。
     return compressedJson(ranked, request)

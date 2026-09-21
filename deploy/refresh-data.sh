@@ -5,7 +5,7 @@
 #   /opt/anjia/deploy/refresh-data.sh              # 本期實價登錄 + POI + 捷運 + 災害
 #   /opt/anjia/deploy/refresh-data.sh --seasons=115S2,115S1
 #
-# 做的事：確認 schema 存在 → 跑 pipeline → 讓 web 重新讀資料庫 → 記錄結果。
+# 做的事：確認 schema 存在 → 跑 pipeline → 記錄結果。
 # 金鑰從 /opt/anjia/.env 讀（compose 會自動載入）。
 set -euo pipefail
 
@@ -37,27 +37,6 @@ fi
 
 echo "==> 跑 pipeline"
 $COMPOSE run --rm --no-deps data-refresh pnpm fetch:data "$@"
-
-# better-sqlite3 的連線在 Next 行程裡是快取的。pipeline 是就地改同一個 inode，
-# 理論上讀得到新資料，但重啟只要幾秒而且能保證不會讀到舊的 page cache。
-echo "==> 重啟 web"
-$COMPOSE restart web
-
-echo "==> 等待 healthy"
-for i in $(seq 1 20); do
-  # 用 template 而不是 --format json：json 的欄位是照字母排的，Health 排在 Service
-  # 前面，所以 '"Service":"web".*"Health":"healthy"' 這種寫法永遠不會 match。
-  if $COMPOSE ps --format '{{.Service}} {{.Status}}' | grep -q '^web .*healthy'; then
-    echo "web healthy"
-    break
-  fi
-  if [ "$i" = "20" ]; then
-    echo "!! web 沒有回到 healthy，印出日誌"
-    $COMPOSE logs --tail=40 web
-    exit 1
-  fi
-  sleep 3
-done
 
 echo "==> 現有資料量"
 $COMPOSE run --rm --no-deps --entrypoint node data-refresh -e \

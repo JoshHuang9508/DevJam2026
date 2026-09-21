@@ -1,15 +1,5 @@
 import type { PreferenceState } from "../../domain/preferences/schema.js";
 
-/**
- * 物件層級的資料來源。實際的 SQLite（前端的 data/app.db）與計分邏輯都在前端，
- * 這裡只是把後端 agent 的 PreferenceState 送過去換回排好的物件。
- *
- * 為什麼不在後端自己讀 SQLite 再算一次分數：那會變成兩份排序器。使用者畫面上看到
- * 的卡片由前端 lib/scoring 排，agent 嘴巴講的若由後端另一份程式排，兩者只要有一個
- * 欄位處理不同就會開始漂移 —— 畫面第一名是 A，agent 卻在誇 B，而且沒有任何測試會抓到。
- * 所以排序器只留一份，後端透過 HTTP 借用它。
- */
-
 export interface RankedListing {
   id: string;
   title: string;
@@ -57,7 +47,6 @@ export interface RankListingsInput {
   preferences: PreferenceState;
   mode?: "sale" | "rent";
   limit?: number;
-  /** 模糊地點。只給地名，座標由前端查 districts 表解析 —— 模型不得自己生經緯度。 */
   near?: { place: string; radiusKm?: number };
   signal?: AbortSignal;
 }
@@ -77,7 +66,6 @@ export interface ListingsProvider {
   describe(mode: "sale" | "rent", signal?: AbortSignal): Promise<DatasetSummary>;
 }
 
-/** 前端沒起來或資料庫沒建時丟這個，讓 tool 回一句人看得懂的話而不是整輪爆掉。 */
 export class ListingsUnavailableError extends Error {}
 
 export function createListingsProvider(options: { baseUrl: string; timeoutMs: number }): ListingsProvider {

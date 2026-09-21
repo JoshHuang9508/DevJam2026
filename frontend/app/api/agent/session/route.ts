@@ -15,6 +15,6 @@ export async function GET() {
     backendUp: health !== null,
     // "pi-agent-core" = real LLM, "deterministic-fallback" = rule-based parser.
     agentRuntime: health?.runtime ?? null,
-    listingsDb: listingsDbAvailable(),
+    listingsDb: await listingsDbAvailable(),
   })
 }

@@ -13,12 +13,12 @@ export const dynamic = 'force-dynamic'
  * 放寬多少都不會有結果。這兩種情況要給使用者的下一步完全不同。
  */
 export async function GET(request: Request): Promise<Response> {
-  if (!listingsDbAvailable()) {
+  if (!(await listingsDbAvailable())) {
     return NextResponse.json({ error: '物件資料庫尚未建立' }, { status: 503 })
   }
   const raw = new URL(request.url).searchParams.get('mode')
   const mode: Mode = raw === 'rent' ? 'rent' : 'sale'
-  const summary = datasetSummary(mode)
+  const summary = await datasetSummary(mode)
 
   return NextResponse.json({
     ...summary,

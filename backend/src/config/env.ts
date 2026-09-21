@@ -8,6 +8,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().url().default("postgres://postgres:postgres@localhost:5432/home_selector"),
   REPOSITORY_MODE: z.enum(["postgres", "memory"]).default("memory"),
+  LISTINGS_DATABASE_PATH: z.string().default("../frontend/data/app.db"),
   AGENT_MODE: z.enum(["auto", "pi", "deterministic"]).default("deterministic"),
   PI_PROVIDER: z.enum(["google", "custom-openai"]).default("google"),
   PI_MODEL: z.string().default("gemini-2.5-flash"),
@@ -28,8 +29,6 @@ const envSchema = z.object({
   URBAN_PLAN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   URBAN_PLAN_SLOW_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
   URBAN_PLAN_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(86_400_000),
-  // 前端的物件排序端點。物件資料庫（SQLite）與計分器都住在前端，agent 透過它借用，
-  // 才不會出現「畫面一份排名、agent 嘴上另一份排名」。
   FRONTEND_URL: z.string().url().default("http://127.0.0.1:3000"),
   LISTINGS_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   // Twinkle Hub MCP（台灣政府開放資料聚合）。沒有金鑰就不註冊那些 tool，

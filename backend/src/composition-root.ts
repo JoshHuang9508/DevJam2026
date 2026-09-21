@@ -4,6 +4,7 @@ import type { AgentRuntime } from "./agent/runtime.js";
 import { buildApp } from "./app.js";
 import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
+import { createListingsDatabase } from "./database/listings.js";
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
 import { createListingsProvider } from "./providers/listings/index.js";
 import { createTwinkleClient } from "./providers/twinkle/index.js";
@@ -25,7 +26,6 @@ export async function createApplication(config: AppConfig) {
     slowTimeoutMs: config.URBAN_PLAN_SLOW_TIMEOUT_MS,
     cacheTtlMs: config.URBAN_PLAN_CACHE_TTL_MS,
   });
-  // 物件資料庫住在前端，這裡只借用它的排序端點（見 providers/listings）。
   const listings = createListingsProvider({ baseUrl: config.FRONTEND_URL, timeoutMs: config.LISTINGS_TIMEOUT_MS });
   // 沒有金鑰就是 null，domain-tools 會整組跳過不註冊
   const twinkle = config.TWINKLE_API_KEY
@@ -72,5 +72,5 @@ export async function createApplication(config: AppConfig) {
     runtime = new DeterministicAgentRuntime(preferences);
   }
   const agent = new AgentService(sessions, runtime);
-  return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, runtimeName: runtime.name });
+  return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, listingsDb: createListingsDatabase(config.LISTINGS_DATABASE_PATH), runtimeName: runtime.name });
 }

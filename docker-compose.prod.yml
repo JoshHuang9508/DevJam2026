@@ -9,16 +9,28 @@
 # 前端用 service name 連它就好，瀏覽器必須先通過 Basic Auth 才看得到 /api/*。
 
 services:
+  data-init:
+    build:
+      context: ./frontend
+      target: tools
+    command: ["sh", "-c", "if [ ! -f /app/data/app.db ]; then pnpm db:push && pnpm db:seed; fi"]
+    volumes:
+      - app-data:/app/data
+
   backend:
     build:
       context: ./backend
     restart: unless-stopped
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "3001"
       # 沒有 PostgreSQL，session 存在記憶體，重啟會清空
       REPOSITORY_MODE: memory
+      LISTINGS_DATABASE_PATH: /app/data/app.db
       AGENT_MODE: ${AGENT_MODE:-auto}
       PI_PROVIDER: ${PI_PROVIDER:-google}
       PI_MODEL: ${PI_MODEL:-gemini-flash-latest}
@@ -35,7 +47,7 @@ services:
       CUSTOM_OPENAI_SUPPORTS_STRICT_MODE: ${CUSTOM_OPENAI_SUPPORTS_STRICT_MODE:-false}
       # 後端只被前端從 compose 內網呼叫，瀏覽器不會直接連它；
       # 這裡填公開 origin 只是為了萬一開了 /api/backend/* 代理時仍然正確。
-      # agent 的 rank_listings 透過這個位址借用前端的物件資料庫與計分器。
+      # agent 的 rank_listings 透過這個位址使用單一計分器。
       # 這是 web -> backend -> web 的回呼，不是啟動相依：backend 先起來也沒關係，
       # 這條路只有在 agent 真的呼叫 rank_listings 時才會用到。
       FRONTEND_URL: http://web:3000
@@ -56,6 +68,8 @@ services:
       start_period: 20s
     extra_hosts:
       - host.docker.internal:host-gateway
+    volumes:
+      - app-data:/app/data:ro
 
   web:
     build:
@@ -71,12 +85,9 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       BACKEND_URL: http://backend:3001
-      DATABASE_PATH: /app/data/app.db
       # /api/backend/* 是後端的無驗證全方法代理。正式環境維持關閉；
       # app 本身用不到它，只有想從瀏覽器直接看 Swagger 才需要。
       ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
-    volumes:
-      - app-data:/app/data:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{const j=await r.json();process.exit(r.ok&&j.backendUp&&j.listingsDb?0:1)}).catch(()=>process.exit(1))"]
       interval: 15s
