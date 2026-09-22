@@ -3,7 +3,7 @@
  *
  * 依「名次」而非「分數」上色：分數是加權平均，同一批結果常擠在很窄的區間
  * （例如 0.74~0.82），照分數線性對映會讓所有圖示看起來同一個顏色。
- * 用名次百分位可保證第一名一定是綠、最後一名一定是紅，色帶永遠鋪滿。
+ * 用名次百分位可保證第一名與最後一名落在色帶兩端，整批看起來才分得出層次。
  */
 interface RampStop {
   readonly at: number
@@ -11,9 +11,9 @@ interface RampStop {
 }
 
 export const RANK_STOPS: readonly RampStop[] = [
-  { at: 0, color: [22, 163, 74] },    // green-600 — 排名靠前
-  { at: 0.5, color: [234, 179, 8] },  // yellow-500
-  { at: 1, color: [220, 38, 38] },    // red-600 — 排名靠後
+  { at: 0, color: [90, 97, 72] },     // sage-dark — 排名靠前
+  { at: 0.5, color: [155, 106, 67] }, // nest brown
+  { at: 1, color: [107, 75, 52] },    // bark brown — 排名靠後
 ]
 
 function sampleRamp(stops: readonly RampStop[], position: number): string {
@@ -34,8 +34,8 @@ function sampleRamp(stops: readonly RampStop[], position: number): string {
 }
 
 /**
- * 綠 → 黃 → 紅漸層。`index` 為 0-based 名次，`total` 為該批結果筆數。
- * total <= 1 時整批只有第一名，直接回綠色（除以 0 會變 NaN）。
+ * 鼠尾草 → 巢木棕 → 深木棕。`index` 為 0-based 名次，`total` 為該批結果筆數。
+ * total <= 1 時整批只有第一名，直接回最前色（除以 0 會變 NaN）。
  */
 export function rankColor(index: number, total: number): string {
   return sampleRamp(RANK_STOPS, total <= 1 ? 0 : index / (total - 1))

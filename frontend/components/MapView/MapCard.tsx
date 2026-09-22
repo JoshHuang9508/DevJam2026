@@ -60,7 +60,7 @@ export function MapCard({ listing, rank, anchor, container, onHover, onViewDetai
         }
       }}
       style={{ left, top, width: CARD_W, maxHeight }}
-      className="pointer-events-auto absolute z-50 cursor-pointer overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-900"
+      className="pointer-events-auto absolute z-50 cursor-pointer overflow-hidden rounded-xl border border-mist bg-paper shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nest"
     >
       <div className="max-h-full overflow-y-auto p-3">
         <ListingScoreSummary listing={listing} rank={rank} />

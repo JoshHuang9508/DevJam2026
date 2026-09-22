@@ -17,7 +17,7 @@ export function ListingDetail({ listing, open, onToggle }: Props) {
         type="button"
         onClick={onToggle}
         aria-label="展開物件細項"
-        className="flex w-10 shrink-0 flex-col items-center gap-2 border-l border-neutral-200 bg-white py-3 text-neutral-500 transition hover:text-neutral-900"
+        className="flex w-10 shrink-0 flex-col items-center gap-2 border-l border-mist bg-paper py-3 text-neutral-500 transition hover:text-bark"
       >
         <span aria-hidden>◀</span>
         <span className="text-[11px] [writing-mode:vertical-rl]">物件細項</span>
@@ -29,15 +29,15 @@ export function ListingDetail({ listing, open, onToggle }: Props) {
     <aside
       data-testid="listing-detail"
       aria-label="物件細項"
-      className="flex w-80 shrink-0 flex-col border-l border-neutral-200 bg-white"
+      className="flex w-80 shrink-0 flex-col border-l border-mist bg-paper"
     >
       <div className="flex shrink-0 items-center justify-between px-3 py-2">
-        <span className="text-xs font-medium text-neutral-900">物件細項</span>
+        <span className="text-xs font-medium text-bark">物件細項</span>
         <button
           type="button"
           onClick={onToggle}
           aria-label="收合物件細項"
-          className="text-neutral-400 transition hover:text-neutral-900"
+          className="text-neutral-400 transition hover:text-bark"
         >
           ▶
         </button>
@@ -72,7 +72,7 @@ export function ListingDetail({ listing, open, onToggle }: Props) {
                 href={listing.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block rounded-lg bg-neutral-900 px-3 py-2 text-center text-xs font-medium text-white transition hover:bg-neutral-700"
+                className="block rounded-lg bg-nest px-3 py-2 text-center text-xs font-semibold text-paper transition hover:bg-bark"
               >
                 查看原始物件 ↗
               </a>
@@ -90,7 +90,7 @@ function Detail({ label, value, wide = false }: { label: string; value: ReactNod
   return (
     <div className={wide ? 'col-span-2 min-w-0' : 'min-w-0'}>
       <dt className="text-[11px] text-neutral-500">{label}</dt>
-      <dd className="break-words text-[13px] leading-tight text-neutral-900">{value}</dd>
+      <dd className="break-words text-[13px] leading-tight text-ink">{value}</dd>
     </div>
   )
 }

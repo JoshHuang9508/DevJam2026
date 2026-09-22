@@ -200,14 +200,14 @@ export function AgentApp() {
   const selectedListing = selectedIndex === -1 ? null : s.results[selectedIndex]
 
   return (
-    <main className={`relative flex h-[100dvh] overflow-hidden bg-neutral-50 md:pb-0 ${started ? 'pb-[calc(3.25rem+env(safe-area-inset-bottom))]' : ''}`}>
+    <main className={`relative flex h-[100dvh] overflow-hidden bg-cream md:pb-0 ${started ? 'pb-[calc(3.25rem+env(safe-area-inset-bottom))]' : ''}`}>
       {/* 入口：未開始時置中；開始後淡出並上移，不卸載。inert 移出無障礙樹並擋掉焦點/互動，
           aria-hidden 是 Playwright role 引擎實際讀取的屬性（inert 隱含 aria-hidden 但 Playwright
           未實作這個推論）。兩者缺一都會讓開始後入口的輸入框還能被焦點與選取器抓到。 */}
       <div
         inert={started}
         aria-hidden={started}
-        className={`absolute inset-0 z-20 flex items-center justify-center bg-neutral-50 transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
+        className={`absolute inset-0 z-20 flex items-center justify-center bg-cream transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         } ${entranceFaded ? 'invisible' : ''}`}
       >
@@ -224,7 +224,7 @@ export function AgentApp() {
           由 mobileTab 決定；桌面版（md 以上）三欄照常並排，這裡的狀態完全不影響桌面版。 */}
       {started && (
         <nav
-          className="absolute inset-x-0 bottom-0 z-30 flex border-t border-neutral-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="absolute inset-x-0 bottom-0 z-30 flex border-t border-mist bg-paper pb-[env(safe-area-inset-bottom)] md:hidden"
           aria-label="檢視切換"
         >
           {([['chat', '對話', ChatIcon], ['map', '地圖與物件', MapIcon]] as const).map(([key, label, Icon]) => (
@@ -234,7 +234,7 @@ export function AgentApp() {
               onClick={() => setMobileTab(key)}
               aria-pressed={mobileTab === key}
               className={`flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px] font-medium transition ${
-                mobileTab === key ? 'border-t-2 border-neutral-900 text-neutral-900' : 'text-neutral-400'
+                mobileTab === key ? 'border-t-2 border-nest text-bark' : 'text-neutral-400'
               }`}
             >
               <Icon className="h-[22px] w-[22px]" />
@@ -249,18 +249,18 @@ export function AgentApp() {
       <aside
         inert={!started}
         aria-hidden={!started}
-        className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-neutral-200 bg-white md:flex md:w-[380px]`}
+        className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-mist bg-paper md:flex md:w-[380px]`}
       >
-        <header className="flex items-center gap-2.5 border-b border-neutral-200 px-4 py-3">
-          <h1 className="text-[15px] font-bold tracking-tight text-neutral-900">安家</h1>
+        <header className="flex items-center gap-2.5 border-b border-mist px-4 py-3">
+          <h1 className="text-[15px] font-bold tracking-tight text-bark">安家</h1>
           <span
             className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] leading-none ${
-              status?.backendUp ? 'bg-neutral-100 text-neutral-500' : 'bg-red-50 text-red-700'
+              status?.backendUp ? 'bg-cream text-bark' : 'bg-red-50 text-red-700'
             }`}
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                status === null ? 'bg-neutral-300' : status.backendUp ? 'bg-emerald-500' : 'bg-red-500'
+                status === null ? 'bg-mist' : status.backendUp ? 'bg-sage-dark' : 'bg-red-500'
               }`}
             />
             {runtimeLabel}
@@ -279,7 +279,7 @@ export function AgentApp() {
                     key={example}
                     type="button"
                     onClick={() => void send(example)}
-                    className="block w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-xs leading-relaxed text-neutral-600 transition hover:border-neutral-900 hover:text-neutral-900"
+                    className="block w-full rounded-lg border border-mist bg-cream px-3 py-2 text-left text-xs leading-relaxed text-bark transition hover:border-nest hover:text-nest"
                   >
                     {example}
                   </button>
@@ -289,7 +289,7 @@ export function AgentApp() {
             {messages.map((m) => (
               <div key={m.id} className={m.role === 'user' ? 'ml-auto max-w-[85%]' : 'mr-auto max-w-[96%]'}>
                 {m.role === 'user' ? (
-                  <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-neutral-900 px-3 py-2 text-[13px] leading-relaxed text-white">
+                  <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-nest px-3 py-2 text-[13px] leading-relaxed text-paper">
                     {m.content}
                   </div>
                 ) : (
@@ -330,12 +330,12 @@ export function AgentApp() {
                   void send(input)
                 }
               }}
-              className="min-h-0 flex-1 resize-none rounded-lg border border-neutral-300 px-2.5 py-1.5 text-[13px] leading-relaxed outline-none transition placeholder:text-neutral-400 focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
+              className="min-h-0 flex-1 resize-none rounded-lg border border-mist bg-paper px-2.5 py-1.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-neutral-400 focus:border-nest focus:ring-1 focus:ring-nest"
             />
             <button
               type="submit"
               disabled={chatting || !input.trim()}
-              className="shrink-0 rounded-lg bg-neutral-900 px-3 text-[13px] font-medium text-white transition hover:bg-neutral-700 disabled:opacity-30 disabled:hover:bg-neutral-900"
+              className="shrink-0 rounded-lg bg-nest px-3 text-[13px] font-semibold text-paper transition hover:bg-bark disabled:opacity-30 disabled:hover:bg-nest"
             >
               {chatting ? '…' : '送出'}
             </button>
@@ -353,7 +353,7 @@ export function AgentApp() {
 
         {/* 三個訊息都沒有時整條不掛載 —— 空的 div 仍有 py-2 與底線，會在地圖上方留一條白帶 */}
         {(s.loading || s.error !== null || (status !== null && !status.listingsDb)) && (
-          <div className="flex shrink-0 items-center gap-3 border-b border-neutral-200 bg-white px-4 py-2 text-xs">
+          <div className="flex shrink-0 items-center gap-3 border-b border-mist bg-paper px-4 py-2 text-xs">
             {s.loading && <span className="text-neutral-400">排序中…</span>}
             {s.error && <span className="text-red-600">{s.error}</span>}
             {status && !status.listingsDb && (
@@ -363,7 +363,7 @@ export function AgentApp() {
         )}
 
         {s.relaxations.length > 0 && (
-          <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+          <p className="shrink-0 border-b border-twig bg-[#f3e6d4] px-4 py-2 text-xs text-bark">
             為了找到結果，{s.relaxations.join('、')}
           </p>
         )}

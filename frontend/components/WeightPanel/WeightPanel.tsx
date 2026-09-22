@@ -44,7 +44,7 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
               <div className="mb-1.5 flex items-baseline justify-between gap-2 text-xs leading-none">
                 <span className="text-neutral-600">{WEIGHT_LABELS[key]}</span>
                 {change ? (
-                  <span className="rounded bg-neutral-900 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-white">
+                  <span className="rounded bg-gold px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink">
                     {change.from} → {change.to}
                   </span>
                 ) : (
@@ -59,8 +59,8 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                 step={1}
                 onValueChange={([v]) => setWeight(key, v)}
               >
-                <Slider.Track className="relative h-[3px] w-full grow overflow-hidden rounded-full bg-neutral-200">
-                  <Slider.Range className="absolute h-full rounded-full bg-neutral-800" />
+                <Slider.Track className="relative h-[3px] w-full grow overflow-hidden rounded-full bg-mist">
+                  <Slider.Range className="absolute h-full rounded-full bg-nest" />
                 </Slider.Track>
                 {/*
                   aria-label 必須放在 Thumb 上，不能放 Root。
@@ -71,7 +71,7 @@ export function WeightPanel({ profile, onChange, highlighted }: Props) {
                 */}
                 <Slider.Thumb
                   aria-label={WEIGHT_LABELS[key]}
-                  className="block h-3.5 w-3.5 rounded-full border border-neutral-300 bg-white shadow-sm transition group-hover:border-neutral-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900 focus-visible:ring-offset-1"
+                  className="block h-3.5 w-3.5 rounded-full border border-twig bg-paper shadow-sm transition group-hover:border-nest focus:outline-none focus-visible:ring-2 focus-visible:ring-nest focus-visible:ring-offset-1 focus-visible:ring-offset-cream"
                 />
               </Slider.Root>
             </li>

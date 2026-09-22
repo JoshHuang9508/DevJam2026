@@ -119,7 +119,7 @@ export function ListingDeck({ results, selectedId, onSelect }: Props) {
           <div key={r.id} className="h-full w-full shrink-0 snap-center snap-always px-3 pb-3">
             <div
               className={`h-full overflow-y-auto rounded-lg border bg-white p-3 transition ${
-                r.id === selectedId ? 'border-neutral-900' : 'border-neutral-200'
+                r.id === selectedId ? 'border-nest' : 'border-mist'
               }`}
             >
               <ListingCardBody listing={r} rank={i + 1} expanded />

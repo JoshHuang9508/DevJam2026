@@ -1,14 +1,45 @@
 @import "tailwindcss";
 
+/*
+ * 安巢配色：60% 暖米白 / 30% 木質棕 / 10% 鼠尾草＋暖窗金
+ * 具名 token 給 CTA 與點綴；neutral 映射成同色溫，既有 class 會跟著變暖。
+ */
+@theme {
+  --color-nest: #9b6a43;
+  --color-bark: #6b4b34;
+  --color-cream: #f6f1e8;
+  --color-twig: #c8a27b;
+  --color-sage: #a6ad8a;
+  --color-sage-dark: #5a6148;
+  --color-gold: #e5be74;
+  --color-paper: #fbf8f3;
+  --color-mist: #e7e1d8;
+  --color-ink: #2e2a27;
+
+  --color-white: #fbf8f3;
+
+  --color-neutral-50: #f6f1e8;
+  --color-neutral-100: #efe8dc;
+  --color-neutral-200: #e7e1d8;
+  --color-neutral-300: #d4c4b0;
+  --color-neutral-400: #b59a7e;
+  --color-neutral-500: #8d6e54;
+  --color-neutral-600: #6b4b34;
+  --color-neutral-700: #5c4030;
+  --color-neutral-800: #4a3428;
+  --color-neutral-900: #2e2a27;
+  --color-neutral-950: #1c1917;
+}
+
 :root { color-scheme: light; }
 html, body { height: 100%; }
-body { @apply bg-neutral-50 text-neutral-900 antialiased; }
+body { @apply bg-cream text-ink antialiased; }
 
 /* 橫向卡片列與側欄的捲軸預設又粗又搶戲，收細一點才不會蓋過內容 */
 @supports (scrollbar-width: thin) {
   .overflow-x-auto, .overflow-y-auto {
     scrollbar-width: thin;
-    scrollbar-color: theme(--color-neutral-300) transparent;
+    scrollbar-color: var(--color-mist) transparent;
   }
 }
 .overflow-x-auto::-webkit-scrollbar,
@@ -17,8 +48,8 @@ body { @apply bg-neutral-50 text-neutral-900 antialiased; }
 .overflow-y-auto::-webkit-scrollbar-track { background: transparent; }
 .overflow-x-auto::-webkit-scrollbar-thumb,
 .overflow-y-auto::-webkit-scrollbar-thumb {
-  background: theme(--color-neutral-300);
+  background: var(--color-mist);
   border-radius: 9999px;
 }
 .overflow-x-auto::-webkit-scrollbar-thumb:hover,
-.overflow-y-auto::-webkit-scrollbar-thumb:hover { background: theme(--color-neutral-400); }
+.overflow-y-auto::-webkit-scrollbar-thumb:hover { background: var(--color-twig); }

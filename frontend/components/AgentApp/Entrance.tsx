@@ -31,11 +31,11 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
   return (
     <div className="w-full max-w-2xl px-6" data-testid="entrance">
       <div className="mb-6 flex items-center justify-center gap-2">
-        <span className={`h-1.5 w-1.5 rounded-full ${statusOk ? 'bg-emerald-500' : 'bg-neutral-300'}`} />
+        <span className={`h-1.5 w-1.5 rounded-full ${statusOk ? 'bg-sage-dark' : 'bg-mist'}`} />
         <span className="text-[11px] text-neutral-400">{statusLabel}</span>
       </div>
 
-      <h1 className="text-center text-3xl font-bold tracking-tight text-neutral-900">安家</h1>
+      <h1 className="text-center text-3xl font-bold tracking-tight text-bark">安家</h1>
       <p className="mt-2 text-center text-sm text-neutral-500">
         用一句話描述你想要的生活，agent 會先選出適合的行政區，再從那些區裡挑物件
       </p>
@@ -53,13 +53,13 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
           placeholder={PLACEHOLDERS[index]}
           aria-label="描述你想要的居住條件"
           data-testid="composer-input"
-          className="min-w-0 flex-1 rounded-lg border border-neutral-300 bg-white px-4 py-3 text-base outline-none transition placeholder:text-neutral-400 focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900"
+          className="min-w-0 flex-1 rounded-lg border border-mist bg-paper px-4 py-3 text-base text-ink outline-none transition placeholder:text-neutral-400 focus:border-nest focus:ring-1 focus:ring-nest"
         />
         <button
           type="submit"
           disabled={disabled || !value.trim()}
           data-testid="composer-submit"
-          className="shrink-0 rounded-lg bg-neutral-900 px-5 py-3 font-medium text-white transition hover:bg-neutral-700 disabled:opacity-30"
+          className="shrink-0 rounded-lg bg-nest px-5 py-3 font-semibold text-paper transition hover:bg-bark disabled:opacity-30"
         >
           {disabled ? '思考中' : '送出'}
         </button>
@@ -78,7 +78,7 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
                 requestAnimationFrame(() => input.setSelectionRange(p.length, p.length))
               }}
               disabled={disabled}
-              className="rounded-full border border-neutral-300 bg-white px-3 py-1.5 text-xs text-neutral-600 transition hover:border-neutral-900 hover:text-neutral-900 disabled:opacity-40"
+              className="rounded-full border border-mist bg-paper px-3 py-1.5 text-xs text-bark transition hover:border-nest hover:text-nest disabled:opacity-40"
             >
               {p.length > 22 ? `${p.slice(0, 22)}…` : p}
             </button>

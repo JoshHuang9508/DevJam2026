@@ -12,7 +12,7 @@ export function StarRating({ score, size = 'default' }: { score: number; size?: 
       <span className={`relative inline-block leading-none tracking-[-0.08em] text-neutral-300 ${starSize}`} aria-hidden="true">
         ★★★★★
         <span
-          className="absolute inset-y-0 left-0 overflow-hidden whitespace-nowrap text-amber-500"
+          className="absolute inset-y-0 left-0 overflow-hidden whitespace-nowrap text-gold"
           style={{ width: `${Math.min(100, Math.max(0, score * 100))}%` }}
         >
           ★★★★★

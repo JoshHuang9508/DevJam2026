@@ -45,10 +45,10 @@ export function ListingCardBody({ listing, rank, expanded }: BodyProps) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] text-neutral-500">#{rank} · {listing.city}{listing.district}</p>
-          <p className="truncate font-semibold text-neutral-900">{listing.title}</p>
+          <p className="truncate font-semibold text-bark">{listing.title}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xl font-bold leading-none tabular-nums text-neutral-900">
+          <p className="text-xl font-bold leading-none tabular-nums text-bark">
             {scorePercent(listing.score)} 分
           </p>
           <p className="text-[11px] text-neutral-500">
@@ -57,7 +57,7 @@ export function ListingCardBody({ listing, rank, expanded }: BodyProps) {
         </div>
       </div>
 
-      <p className="mt-1.5 text-[15px] font-semibold tabular-nums text-neutral-900">
+      <p className="mt-1.5 text-[15px] font-semibold tabular-nums text-bark">
         {formatPrice(listing)}
       </p>
       <p className="mt-1 truncate text-[11px] text-neutral-500">
@@ -80,11 +80,11 @@ export function ListingCardBody({ listing, rank, expanded }: BodyProps) {
             <BreakdownBars listing={listing} />
           </div>
 
-          <p className="mt-2 text-[11px] leading-relaxed text-emerald-700">
+          <p className="mt-2 text-[11px] leading-relaxed text-sage-dark">
             ＋ {WEIGHT_LABELS[best]}表現較佳（{Math.round(listing.breakdown[best].subscore * 100)}）
           </p>
           {worst !== null && (
-            <p className="text-[11px] leading-relaxed text-amber-700">
+            <p className="text-[11px] leading-relaxed text-bark">
               − {WEIGHT_LABELS[worst]}相對弱（{Math.round(listing.breakdown[worst].subscore * 100)}）
             </p>
           )}
@@ -110,8 +110,8 @@ export function ListingCard({ listing, rank, hovered, selected, onHover, onSelec
         if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(listing.id) }
       }}
       data-testid="listing-card"
-      className={`w-[18.5rem] shrink-0 cursor-pointer rounded-lg border bg-white p-3 transition ${
-        selected ? 'border-neutral-900 ring-1 ring-neutral-900' : hovered ? 'border-neutral-800 shadow-md' : 'border-neutral-200'
+      className={`w-[18.5rem] shrink-0 cursor-pointer rounded-lg border bg-paper p-3 transition ${
+        selected ? 'border-nest ring-1 ring-nest' : hovered ? 'border-twig shadow-md' : 'border-mist'
       }`}
     >
       <ListingCardBody listing={listing} rank={rank} expanded />

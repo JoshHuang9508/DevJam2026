@@ -291,7 +291,7 @@ export function MapView({
   const shown = shownIndex === -1 ? null : results[shownIndex]
 
   return (
-    <div ref={containerRef} className="relative h-full w-full bg-neutral-200" data-testid="map">
+    <div ref={containerRef} className="relative h-full w-full bg-mist" data-testid="map">
       <div ref={mapDivRef} style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
       {showCard && shown && anchor && containerSize && (
         <MapCard

@@ -19,7 +19,7 @@ export function BreakdownBars({ listing }: { listing: ScoredListing }) {
             <span className="w-14 shrink-0 truncate text-neutral-500">{WEIGHT_LABELS[key]}</span>
             <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-100">
               <span
-                className={`block h-full rounded-full ${lead ? 'bg-neutral-700' : 'bg-neutral-300'}`}
+                className={`block h-full rounded-full ${lead ? 'bg-nest' : 'bg-twig'}`}
                 style={{ width: `${Math.round(subscore * 100)}%` }}
               />
             </span>
