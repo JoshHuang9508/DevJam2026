@@ -1,161 +1,30 @@
-import { BackendError, createSession, openMessageStream, patchPreferences } from '@/lib/backend/client'
-import { areaCoverageNote, listingsDbAvailable } from '@/lib/backend/listings'
-import { toPreferencePatch, toSearchProfile } from '@/lib/backend/profile-bridge'
-import { rememberProfile } from '@/lib/backend/profile-cache'
-import { readAgentEvents } from '@/lib/backend/sse-client'
-import { loadPool } from '@/lib/backend/listing-data'
-import { parseProfile } from '@/lib/profile/schema'
-import { rankWithRelaxation } from '@/lib/scoring/relax'
-import { sseEvent } from '@/lib/sse'
-import type { RankResult } from '@/lib/types/listing'
-import type { SearchProfile } from '@/lib/types/profile'
+import { BACKEND_URL } from '@/lib/backend/client'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-/**
- * One agent turn, backend-driven.
- *
- *   client profile ──patch──> backend PreferenceState
- *                              └─ agent 從對話萃取條件（含使用者指定的地區）
- *                                   └─ lib/scoring 直接對物件資料集排名
- *
- * 中間沒有「選行政區」那一層了：地區只在使用者自己說出口時才成為硬條件，
- * 而且一旦成立就不會被放寬（見 lib/scoring/relax.ts）。
- *
- * Emits the same event names as /api/chat (profile / results / text / done / error)
- * plus `session`, so the UI reducer is shared.
- */
-export async function POST(request: Request): Promise<Response> {
-  let body: unknown
+export async function POST(request: Request) {
   try {
-    body = await request.json()
+    const response = await fetch(`${BACKEND_URL}/ui/chat`, {
+      method: 'POST',
+      headers: {
+        'content-type': request.headers.get('content-type') ?? 'application/json',
+        accept: 'text/event-stream',
+      },
+      body: await request.text(),
+      cache: 'no-store',
+      signal: request.signal,
+    })
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        'content-type': response.headers.get('content-type') ?? 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        'x-accel-buffering': 'no',
+      },
+    })
   } catch {
-    return new Response('請求格式錯誤', { status: 400 })
+    return Response.json({ message: '無法連線到推薦後端' }, { status: 502 })
   }
-
-  const raw = body as { sessionId?: string; profile?: unknown; message?: unknown } | null
-  const clientProfile = parseProfile(raw?.profile)
-  const message = typeof raw?.message === 'string' ? raw.message.trim() : ''
-  if (!message) return new Response('缺少 message', { status: 400 })
-
-  const encoder = new TextEncoder()
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(sseEvent(event, data)))
-      }
-
-      /**
-       * PreferenceState -> 物件排名。使用者指定的地區在這裡是不可協商的：查不到就
-       * 回一句說明，不再像以前那樣把行政區條件刪掉改成全域搜尋。
-       */
-      const rankListings = async (profile: SearchProfile): Promise<{ ranked: RankResult; note: string | null }> => ({
-        ranked: rankWithRelaxation(profile, await loadPool(profile.mode, profile.hard.cities)),
-        note: await areaCoverageNote(profile.mode, profile.hard),
-      })
-
-      const emit = async (profile: SearchProfile) => {
-        const { ranked, note } = await rankListings(profile)
-        send('profile', profile)
-        send('results', {
-          ...ranked,
-          relaxations: note ? [note, ...ranked.relaxations] : ranked.relaxations,
-        })
-      }
-
-      let sessionId = raw?.sessionId
-      try {
-        const preferencePatch = toPreferencePatch(clientProfile)
-        if (!sessionId) {
-          sessionId = (await createSession()).id
-          await patchPreferences(sessionId, preferencePatch)
-        } else {
-          try {
-            await patchPreferences(sessionId, preferencePatch)
-          } catch (error) {
-            if (!(error instanceof BackendError) || error.status !== 404) throw error
-            sessionId = (await createSession()).id
-            await patchPreferences(sessionId, preferencePatch)
-          }
-        }
-        send('session', { sessionId })
-        // agent 的 rank_listings 會回打 /api/rank/preferences，那裡需要這份 client profile
-        // 當 base，否則它排出來的前三名跟畫面上的卡片會不一致（見 profile-cache）。
-        rememberProfile(sessionId, clientProfile)
-
-        if (!(await listingsDbAvailable())) {
-          send('error', { message: '物件資料庫尚未建立，請先執行 pnpm db:push && pnpm db:seed。' })
-        }
-
-        const upstream = await openMessageStream(sessionId, message, request.signal)
-        let emittedResults = false
-        let sawText = false
-
-        for await (const event of readAgentEvents(upstream.body!, request.signal)) {
-          switch (event.type) {
-            // 條件一變就重排。這是 agent 沒呼叫 rank_listings 時的來源
-            // （例如它只更新了權重就直接回答）。
-            case 'preferences.updated':
-              await emit(toSearchProfile(event.preferences, clientProfile))
-              emittedResults = true
-              break
-
-            // agent 真的排過物件時，用它**實際用的那份 profile** 覆蓋掉上面的推導結果。
-            // 兩者的差別是致命的：agent 解析出的 near 錨點（「靠近土城」）只存在於
-            // 這份 profile 裡，前端自己的 toSearchProfile 推不出來 —— 少了它，
-            // agent 在講土城而地圖上是全台的房子。
-            case 'listings.ranked': {
-              const effective = parseProfile(event.effectiveProfile)
-              await emit(effective)
-              emittedResults = true
-              break
-            }
-
-            case 'message.delta':
-              sawText = true
-              send('text', { delta: event.delta })
-              break
-
-            case 'message.completed':
-              // Non-streaming runtimes only emit the final message.
-              if (!sawText && event.message) send('text', { delta: event.message })
-              break
-
-            case 'error':
-              send('error', { message: event.message })
-              break
-
-            default:
-              break
-          }
-        }
-
-        // agent 這一輪沒動條件（例如只是問「這間屋齡多少」）時仍要給畫面一份結果，
-        // 否則第一輪純提問會讓地圖一直空著。
-        if (!emittedResults) await emit(clientProfile)
-
-        send('done', {})
-      } catch (error) {
-        console.error('[api/selector/chat] 失敗', error)
-        send('error', {
-          message: error instanceof BackendError
-            ? error.message
-            : '伺服器連接錯誤。',
-        })
-        send('done', {})
-      } finally {
-        controller.close()
-      }
-    },
-  })
-
-  return new Response(stream, {
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-      'x-accel-buffering': 'no',
-    },
-  })
 }

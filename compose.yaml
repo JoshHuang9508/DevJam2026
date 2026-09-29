@@ -1,15 +1,59 @@
 name: devjam2026
 
 services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: home_selector
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d home_selector"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["node", "dist/database/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/home_selector
+
   backend:
     build:
       context: ./backend
     restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: "3001"
-      REPOSITORY_MODE: memory
+      REPOSITORY_MODE: postgres
+      DATABASE_URL: postgres://postgres:postgres@db:5432/home_selector
+      EMBEDDING_MODE: ${EMBEDDING_MODE:-hash}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      DETAIL_EXTRACTION_MODE: ${DETAIL_EXTRACTION_MODE:-auto}
+      DETAIL_EXTRACTION_MODEL: ${DETAIL_EXTRACTION_MODEL:-}
+      DETAIL_EXTRACTION_BASE_URL: ${DETAIL_EXTRACTION_BASE_URL:-}
+      DETAIL_EXTRACTION_API_KEY: ${DETAIL_EXTRACTION_API_KEY:-}
+      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
+      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-anjia-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)}
+      NOMINATIM_EMAIL: ${NOMINATIM_EMAIL:-}
+      GEOCODE_BUDGET: ${GEOCODE_BUDGET:-250}
+      GEOCODE_MIN_INTERVAL_MS: ${GEOCODE_MIN_INTERVAL_MS:-1100}
+      PIPELINE_POLL_INTERVAL_MS: ${PIPELINE_POLL_INTERVAL_MS:-60000}
+      PIPELINE_FETCH_TIMEOUT_MS: ${PIPELINE_FETCH_TIMEOUT_MS:-30000}
       AGENT_MODE: ${AGENT_MODE:-auto}
       PI_PROVIDER: ${PI_PROVIDER:-google}
       PI_MODEL: ${PI_MODEL:-gemini-flash-latest}
@@ -24,7 +68,6 @@ services:
       CUSTOM_OPENAI_SUPPORTS_REASONING_EFFORT: ${CUSTOM_OPENAI_SUPPORTS_REASONING_EFFORT:-false}
       CUSTOM_OPENAI_SUPPORTS_USAGE_IN_STREAMING: ${CUSTOM_OPENAI_SUPPORTS_USAGE_IN_STREAMING:-false}
       CUSTOM_OPENAI_SUPPORTS_STRICT_MODE: ${CUSTOM_OPENAI_SUPPORTS_STRICT_MODE:-false}
-      FRONTEND_URL: http://web:3000
       TWINKLE_API_KEY: ${TWINKLE_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       CORS_ORIGINS: ${PUBLIC_ORIGIN:-http://localhost:3000}
@@ -40,6 +83,18 @@ services:
       retries: 10
       start_period: 10s
 
+  data-init:
+    profiles: ["legacy-data"]
+    build:
+      context: ./frontend
+      target: tools
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: ["pnpm", "db:seed"]
+    environment:
+      INGEST_URL: http://backend:3001/listings/ingest
+
   web:
     build:
       context: ./frontend
@@ -54,12 +109,9 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       BACKEND_URL: http://backend:3001
-      DATABASE_PATH: /app/data/app.db
       ENABLE_BACKEND_PROXY: ${ENABLE_BACKEND_PROXY:-false}
-    volumes:
-      - app-data:/app/data:ro
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{const j=await r.json();process.exit(r.ok&&j.backendUp&&j.listingsDb?0:1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{const j=await r.json();process.exit(r.ok&&j.backendUp?0:1)}).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -77,29 +129,23 @@ services:
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
       - ${BASIC_AUTH_FILE:-./deploy/.htpasswd}:/etc/nginx/auth/.htpasswd:ro
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
 
   data-refresh:
     profiles: ["tools"]
     build:
       context: ./frontend
       target: tools
-    volumes:
-      - app-data:/app/data
+    depends_on:
+      backend:
+        condition: service_healthy
     environment:
-      DATABASE_PATH: /app/data/app.db
-      PIPELINE_CACHE_DIR: /app/data/cache
-      NOMINATIM_URL: ${NOMINATIM_URL:-https://nominatim.openstreetmap.org}
-      NOMINATIM_USER_AGENT: ${NOMINATIM_USER_AGENT:-anjia-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)}
-      NOMINATIM_EMAIL: ${NOMINATIM_EMAIL:-}
-      GEOCODE_BUDGET: ${GEOCODE_BUDGET:-250}
+      INGEST_URL: http://backend:3001/listings/ingest
+      PIPELINE_CACHE_DIR: /app/cache
       CWA_API_KEY: ${CWA_API_KEY:-}
       MOENV_API_KEY: ${MOENV_API_KEY:-}
+    volumes:
+      - pipeline-cache:/app/cache
 
 volumes:
-  app-data:
+  postgres-data:
+  pipeline-cache:

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getHealth } from '@/lib/backend/client'
-import { listingsDbAvailable } from '@/lib/backend/listings'
+import { getHealth, getListingsStatus } from '@/lib/backend/client'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -15,6 +14,6 @@ export async function GET() {
     backendUp: health !== null,
     // "pi-agent-core" = real LLM, "deterministic-fallback" = rule-based parser.
     agentRuntime: health?.runtime ?? null,
-    listingsDb: await listingsDbAvailable(),
+    listingsDb: (await getListingsStatus().catch(() => ({ available: false }))).available,
   })
 }

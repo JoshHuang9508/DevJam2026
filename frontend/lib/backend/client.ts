@@ -1,11 +1,5 @@
 import 'server-only'
-import type {
-  BackendHealth,
-  Candidate,
-  PreferencePatch,
-  PreferenceState,
-  SearchSession,
-} from './types'
+import type { BackendHealth } from './types'
 
 /**
  * The Fastify recommendation backend (repo `backend/`). Server-side only —
@@ -44,40 +38,6 @@ export function getHealth(): Promise<BackendHealth> {
   return call<BackendHealth>('/health')
 }
 
-export function createSession(): Promise<SearchSession> {
-  return call<SearchSession>('/sessions', { method: 'POST', body: '{}' })
-}
-
-export function getSession(id: string): Promise<SearchSession> {
-  return call<SearchSession>(`/sessions/${id}`)
-}
-
-export function patchPreferences(
-  id: string,
-  patch: PreferencePatch,
-): Promise<{ preferences: PreferenceState; candidates: Candidate[] }> {
-  return call(`/sessions/${id}/preferences`, { method: 'PATCH', body: JSON.stringify(patch) })
-}
-
-export function rank(id: string, refreshData: boolean): Promise<{ candidates: Candidate[] }> {
-  return call(`/sessions/${id}/rank`, { method: 'POST', body: JSON.stringify({ refreshData }) })
-}
-
-/**
- * Opens the backend's SSE turn. Returns the raw upstream Response so a Route
- * Handler can hand `response.body` straight back to the browser unbuffered.
- */
-export async function openMessageStream(id: string, message: string, signal?: AbortSignal): Promise<Response> {
-  const response = await fetch(`${BACKEND_URL}/sessions/${id}/messages`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-    body: JSON.stringify({ message }),
-    cache: 'no-store',
-    signal,
-  })
-  if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => '')
-    throw new BackendError(response.status, detail || response.statusText)
-  }
-  return response
+export function getListingsStatus(): Promise<{ available: boolean; total: number }> {
+  return call('/listings/status')
 }

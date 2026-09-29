@@ -26,22 +26,10 @@ echo "==> $(date -Is) 開始更新資料"
 # --build 是必要的：data-refresh 有 profiles: ["tools"]，部署時的
 # `up -d --build` 會整個跳過它，所以它的映像檔不會跟著程式碼更新。
 # 少了這個旗標，pipeline 會拿舊版程式跑出舊結果，而且看起來完全成功。
-# --no-deps：這是批次工作，不需要（也不該）把 backend 拉起來
 $COMPOSE build data-refresh
-
-if ! $COMPOSE run --rm --no-deps --entrypoint sh data-refresh -c 'test -f /app/data/app.db'; then
-  echo "==> app.db 不存在，先建立 schema 與示範資料"
-  $COMPOSE run --rm --no-deps data-refresh pnpm db:push
-  $COMPOSE run --rm --no-deps data-refresh pnpm db:seed
-fi
 
 echo "==> 跑 pipeline"
 $COMPOSE run --rm --no-deps data-refresh pnpm fetch:data "$@"
-
-echo "==> 現有資料量"
-$COMPOSE run --rm --no-deps --entrypoint node data-refresh -e \
-  "const D=require('better-sqlite3');const db=new D('/app/data/app.db',{readonly:true});
-   console.log(db.prepare('SELECT mode, COUNT(*) n FROM listings GROUP BY mode').all());"
 
 # 日誌留 30 天就好，正式機的磁碟不大
 find "$LOG_DIR" -name 'refresh-*.log' -mtime +30 -delete 2>/dev/null || true

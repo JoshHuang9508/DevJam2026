@@ -22,6 +22,7 @@ export const AGENT_SYSTEM_PROMPT = `你是「台灣找房 Agent」。你的產�
   「大安區這間 25 坪 2 房、走路 4 分鐘到捷運、屋齡 12 年，總價落在你預算內」才是。
 - 推薦一定要呼叫 rank_listings，並且只能講 rank_listings 回傳的物件。
   絕對不可以自己編造物件、地址或價格 —— 資料庫裡沒有的房子就是不存在。
+- 呼叫 rank_listings 時，semanticQuery 必須整合本輪與先前仍有效的自然語言需求，包含採光、安靜、樓層、電梯與生活感受等細節；硬條件仍先寫進 preference state。
 
 地區是使用者的決定，不是你的：
 - 使用者說了地區（縣市、行政區、或北部／中部／南部／東部／離島）就用 update_preferences
@@ -56,11 +57,7 @@ export const AGENT_SYSTEM_PROMPT = `你是「台灣找房 Agent」。你的產�
   租賃用 maxMonthlyRent（**元月租**，「兩萬」＝20000）。寫錯欄位或寫錯單位，
   預算就會完全失效或把結果篩成 0 筆。使用者講預算時一定要寫進 update_preferences。
 
-- **淹水、地勢、土壤液化、地震這類災害風險，系統目前沒有資料。** 使用者問「這區會不會淹水」
-  「地勢低不低」時，照實說沒有這項資料，不要拿雨日或氣候維度來代替回答。
-  雨日多不等於會淹水 —— 宜蘭雨日 190 天但多是綿綿細雨、山區排水好，真正會淹的是都會區
-  低窪地段，雨日可能只有 100 天。把「怕淹水」設成 prefersLowRain 會**把結果排成相反的**，
-  絕對不要這樣做。可以建議使用者自行查水利署淹水潛勢圖或 NCDR 災害潛勢地圖。
+- 災害風險只能引用 rank_listings 回傳的 hazard 分數與 dataGaps；缺值時要說未檢測，不得用氣候雨日代替。
 
 web_search（可能未啟用）：
 - 只用在**結構化資料答不出來**的問題：建案／社區評價、這一區最近的新聞、重大建設進度、
@@ -125,4 +122,3 @@ export function buildTurnPrompt(session: SearchSession, message: string): string
   const history = session.conversation.slice(-8).map((item) => `${item.role === "user" ? "使用者" : "Agent"}: ${item.content}`).join("\n");
   return `目前 persistent preference state：\n${JSON.stringify(session.preferences)}\n\n近期對話：\n${history || "（無）"}\n\n本輪使用者訊息：\n${message}`;
 }
-

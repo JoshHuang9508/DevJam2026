@@ -4,7 +4,13 @@ import type { AgentRuntime } from "./agent/runtime.js";
 import { buildApp } from "./app.js";
 import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
-import { createListingsDatabase } from "./database/listings.js";
+import { createEmbeddingProvider } from "./embeddings/provider.js";
+import { createDetailExtractor } from "./details/extractor.js";
+import { createListingIngestion } from "./database/listing-ingestion.js";
+import { createGeocodingService } from "./geocoding/service.js";
+import { createEnrichmentService } from "./enrichment/service.js";
+import { createRawNormalizer } from "./pipeline/normalizer.js";
+import { createPipelineService } from "./pipeline/service.js";
 import { createFixtureProviders } from "./providers/fixture/fixture-provider.js";
 import { createListingsProvider } from "./providers/listings/index.js";
 import { createTwinkleClient } from "./providers/twinkle/index.js";
@@ -26,7 +32,31 @@ export async function createApplication(config: AppConfig) {
     slowTimeoutMs: config.URBAN_PLAN_SLOW_TIMEOUT_MS,
     cacheTtlMs: config.URBAN_PLAN_CACHE_TTL_MS,
   });
-  const listings = createListingsProvider({ baseUrl: config.FRONTEND_URL, timeoutMs: config.LISTINGS_TIMEOUT_MS });
+  const embeddings = createEmbeddingProvider({
+    mode: config.EMBEDDING_MODE,
+    baseUrl: config.EMBEDDING_BASE_URL,
+    ...(config.EMBEDDING_API_KEY ? { apiKey: config.EMBEDDING_API_KEY } : {}),
+    model: config.EMBEDDING_MODEL,
+    dimensions: config.EMBEDDING_DIMENSIONS,
+  });
+  const listings = createListingsProvider({ databaseUrl: config.DATABASE_URL, embeddings });
+  const requestedDetailMode = config.DETAIL_EXTRACTION_MODE;
+  const detailMode = requestedDetailMode === "auto" ? config.DETAIL_EXTRACTION_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : "off" : requestedDetailMode;
+  const detailApiKey = config.DETAIL_EXTRACTION_API_KEY ?? (detailMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
+  const details = createDetailExtractor({ mode: detailMode, model: config.DETAIL_EXTRACTION_MODEL ?? config.PI_MODEL, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
+  const ingestion = createListingIngestion({ databaseUrl: config.DATABASE_URL, embeddings, details });
+  const enrichment = createEnrichmentService({ databaseUrl: config.DATABASE_URL, embeddings, details });
+  const geocoding = createGeocodingService({
+    databaseUrl: config.DATABASE_URL,
+    baseUrl: config.NOMINATIM_URL,
+    userAgent: config.NOMINATIM_USER_AGENT,
+    ...(config.NOMINATIM_EMAIL ? { email: config.NOMINATIM_EMAIL } : {}),
+    budget: config.GEOCODE_BUDGET,
+    minIntervalMs: config.GEOCODE_MIN_INTERVAL_MS,
+  });
+  const normalizer = createRawNormalizer({ mode: detailMode, model: config.DETAIL_EXTRACTION_MODEL ?? config.PI_MODEL, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
+  const pipeline = createPipelineService({ databaseUrl: config.DATABASE_URL, normalizer, geocoding, ingestion, enrichment, fetchTimeoutMs: config.PIPELINE_FETCH_TIMEOUT_MS });
+  pipeline.start(config.PIPELINE_POLL_INTERVAL_MS);
   // 沒有金鑰就是 null，domain-tools 會整組跳過不註冊
   const twinkle = config.TWINKLE_API_KEY
     ? createTwinkleClient({ baseUrl: config.TWINKLE_MCP_URL, apiKey: config.TWINKLE_API_KEY, timeoutMs: config.TWINKLE_TIMEOUT_MS })
@@ -72,5 +102,5 @@ export async function createApplication(config: AppConfig) {
     runtime = new DeterministicAgentRuntime(preferences);
   }
   const agent = new AgentService(sessions, runtime);
-  return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, listingsDb: createListingsDatabase(config.LISTINGS_DATABASE_PATH), runtimeName: runtime.name });
+  return buildApp({ config, sessions, preferences, recommendations, agent, urbanPlan, listings, ingestion, geocoding, enrichment, pipeline, runtimeName: runtime.name });
 }

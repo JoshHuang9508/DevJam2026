@@ -8,7 +8,7 @@ export interface MapBounds {
 
 /**
  * 視角判斷刻意放在 client：它只決定「這個圖釘要不要畫」，不參與排序也不進 API。
- * 放在 lib/scoring 會讓地圖元件為了一個純幾何比較把整個計分引擎拉進 client bundle。
+ * 提供地圖視角內的純幾何比較。
  */
 export function inBounds(p: { lat: number; lng: number }, b: MapBounds): boolean {
   if (p.lat < b.south || p.lat > b.north) return false

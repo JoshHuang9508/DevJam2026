@@ -122,7 +122,7 @@ export function ListingDeck({ results, selectedId, onSelect }: Props) {
                 r.id === selectedId ? 'border-nest' : 'border-mist'
               }`}
             >
-              <ListingCardBody listing={r} rank={i + 1} expanded />
+              <ListingCardBody listing={r} expanded />
             </div>
           </div>
         ))}

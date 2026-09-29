@@ -1,13 +1,9 @@
-# bookworm (glibc) 而非 alpine —— better-sqlite3 的 prebuilds 有 linux-x64，
-# 不需要 node-gyp 也能載入；alpine 要走 linuxmusl，多一層不確定性。
 FROM node:22-bookworm-slim AS base
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.29.2 --activate
 
 FROM base AS build
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-# --ignore-scripts：better-sqlite3 的 install script 會呼叫 node-gyp，
-# 但 v13 已內建 prebuilds/linux-x64.node，編譯完全沒必要。
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY . .
@@ -15,7 +11,6 @@ COPY . .
 ARG NEXT_PUBLIC_MAP_STYLE_URL=""
 ENV NEXT_PUBLIC_MAP_STYLE_URL=$NEXT_PUBLIC_MAP_STYLE_URL
 
-# data/app.db 有 gitignore，映像檔必須自己產生種子資料
 RUN pnpm build
 
 # 資料 pipeline 需要 tsx 與完整 devDeps，所以從 prune 之前的狀態分支出去。

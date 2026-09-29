@@ -56,6 +56,10 @@ const listingPreferencesSchema = z.object({
    * 淹水是客觀風險，預設就有值。
    */
   hazardWeight: weight,
+  priceWeight: weight.optional(),
+  valueWeight: weight.optional(),
+  spaceWeight: weight.optional(),
+  qualityWeight: weight.optional(),
 });
 
 export const preferenceStateSchema = z.object({

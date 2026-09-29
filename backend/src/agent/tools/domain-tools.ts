@@ -109,10 +109,11 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       label: "排名實際房屋物件",
       description:
         "用目前的 preference state 對物件資料集排名，回傳可以直接向使用者推薦的實際房屋物件（含地址、價格、坪數、格局、屋齡、分數與貢獻最大的三個維度）。" +
-        "這是回答任何關於房子的問題的唯一資料來源。分數由 deterministic scoring engine 產生，不得自行計算或改寫。" +
+        "這是回答任何關於房子的問題的唯一資料來源。分數由向量召回與結構化重排產生，不得自行計算或改寫。" +
         "搜尋範圍完全由 preference state 的 hardConstraints 決定：使用者指定過地區的話，回傳的物件一定在那個地區內，" +
         "而且找不到時也不會自動擴大範圍（回傳的 relaxations 會說明）。要改範圍就先呼叫 update_preferences。",
       parameters: Type.Object({
+        semanticQuery: Type.String({ description: "保留使用者描述物件的原始語意，例如「採光好、安靜、有管理員」，不要只留下結構化條件。" }),
         mode: Type.Optional(Type.String({
           description: "sale（買賣）或 rent（租賃）。省略時沿用 preference state 裡的 mode。" +
             "要長期改變買/租意圖請用 update_preferences 寫 hardConstraints.mode，這個參數只影響單次查詢。",
@@ -129,8 +130,8 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
         })),
       }),
       execute: async (_id, params, signal) => {
-        const { mode, limit, nearPlace, nearRadiusKm } = params as {
-          mode?: string; limit?: number; nearPlace?: string; nearRadiusKm?: number;
+        const { semanticQuery, mode, limit, nearPlace, nearRadiusKm } = params as {
+          semanticQuery: string; mode?: string; limit?: number; nearPlace?: string; nearRadiusKm?: number;
         };
         if (mode !== undefined && mode !== "sale" && mode !== "rent") {
           throw new Error(`mode 只接受 "sale" 或 "rent"；收到「${mode}」。`);
@@ -140,23 +141,23 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
           const result = await deps.listings.rank({
             sessionId: deps.sessionId,
             preferences: session.preferences,
+            semanticQuery,
             // 沒特別指定就用 state 裡的，state 也沒有才交給前端決定
             ...(mode ? { mode } : session.preferences.hardConstraints.mode ? { mode: session.preferences.hardConstraints.mode } : {}),
             ...(limit ? { limit } : {}),
             ...(nearPlace ? { near: { place: nearPlace, ...(nearRadiusKm ? { radiusKm: nearRadiusKm } : {}) } } : {}),
             ...(signal ? { signal } : {}),
           });
-          // 前端要用同一份 profile 重算，才能保證畫面與 agent 講的是同一批物件。
           if (result.effectiveProfile) {
             deps.publish({
               type: "listings.ranked",
               effectiveProfile: result.effectiveProfile,
+              results: result.results,
               total: result.total,
               ...eventMeta(deps.turnId),
             });
           }
-          // effectiveProfile 對模型沒有意義，只會白白吃掉 context —— 不進 tool result。
-          const { effectiveProfile: _omit, ...forModel } = result;
+          const { effectiveProfile: _omit, results: _results, ...forModel } = result;
           // 0 筆是常見且有意義的結果（條件太嚴），不是錯誤 —— 讓 agent 拿著
           // relaxations 去說明為什麼，而不是丟例外把整輪打斷。
           return textResult(forModel);
@@ -299,7 +300,7 @@ const PATCH_SHAPE = [
   "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
   "softPreferences.amenities: weight, convenienceStore, supermarket, hospital, clinic, restaurant, school, park.",
   "softPreferences.geography: weight, urbanDensity, elevation, coastalPreference (-1..1).",
-  "listingPreferences: hazardWeight (0..1) — 物件層級，不影響行政區排名，前端拿去排物件。",
+  "listingPreferences: priceWeight, valueWeight, spaceWeight, qualityWeight, hazardWeight (0..1)。",
   "hazardWeight 是災害風險（附近淹水災點密度 + 土壤液化潛勢）的比重，預設 0.5。使用者說「怕淹水」「不要低窪」「在意土壤液化」就調高它。",
   "Every weight is 0..1. Omit whatever the user did not mention.",
 ].join(" ");

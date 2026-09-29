@@ -1,6 +1,9 @@
 import "dotenv/config";
 import { z } from "zod";
 
+const optionalString = z.preprocess((value) => value === "" ? undefined : value, z.string().optional());
+const optionalUrl = z.preprocess((value) => value === "" ? undefined : value, z.string().url().optional());
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   HOST: z.string().default("0.0.0.0"),
@@ -8,7 +11,22 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   DATABASE_URL: z.string().url().default("postgres://postgres:postgres@localhost:5432/home_selector"),
   REPOSITORY_MODE: z.enum(["postgres", "memory"]).default("memory"),
-  LISTINGS_DATABASE_PATH: z.string().default("../frontend/data/app.db"),
+  EMBEDDING_MODE: z.enum(["hash", "openai"]).default("hash"),
+  EMBEDDING_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  EMBEDDING_API_KEY: z.string().optional(),
+  EMBEDDING_MODEL: z.string().default("text-embedding-3-small"),
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(1536),
+  DETAIL_EXTRACTION_MODE: z.enum(["auto", "off", "openai", "google"]).default("auto"),
+  DETAIL_EXTRACTION_MODEL: optionalString,
+  DETAIL_EXTRACTION_BASE_URL: optionalUrl,
+  DETAIL_EXTRACTION_API_KEY: optionalString,
+  NOMINATIM_URL: z.string().url().default("https://nominatim.openstreetmap.org"),
+  NOMINATIM_USER_AGENT: z.string().min(1).default("anjia-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)"),
+  NOMINATIM_EMAIL: optionalString,
+  GEOCODE_BUDGET: z.coerce.number().int().nonnegative().default(250),
+  GEOCODE_MIN_INTERVAL_MS: z.coerce.number().int().min(1000).default(1100),
+  PIPELINE_POLL_INTERVAL_MS: z.coerce.number().int().nonnegative().default(60_000),
+  PIPELINE_FETCH_TIMEOUT_MS: z.coerce.number().int().positive().default(30_000),
   AGENT_MODE: z.enum(["auto", "pi", "deterministic"]).default("deterministic"),
   PI_PROVIDER: z.enum(["google", "custom-openai"]).default("google"),
   PI_MODEL: z.string().default("gemini-2.5-flash"),
@@ -29,8 +47,6 @@ const envSchema = z.object({
   URBAN_PLAN_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   URBAN_PLAN_SLOW_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
   URBAN_PLAN_CACHE_TTL_MS: z.coerce.number().int().nonnegative().default(86_400_000),
-  FRONTEND_URL: z.string().url().default("http://127.0.0.1:3000"),
-  LISTINGS_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
   // Twinkle Hub MCP（台灣政府開放資料聚合）。沒有金鑰就不註冊那些 tool，
   // agent 不會看到它們，也就不會嘗試呼叫。
   TWINKLE_API_KEY: z.string().optional(),

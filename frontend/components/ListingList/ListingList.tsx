@@ -58,11 +58,10 @@ export function ListingList({ results, hoveredId, selectedId, onHover, onSelect,
               與 Enter/Space 鍵盤處理做進 ListingCard 內部，外層再包會重複觸發，
               而且在 role="button" 外面套一個可點擊 div 在無障礙上是錯的。
               hovered 與 selected 也必須分開傳，混成一個值會毀掉 Task 4 建立的兩態區分。 */}
-          {results.map((r, i) => (
+          {results.map((r) => (
             <ListingCard
               key={r.id}
               listing={r}
-              rank={i + 1}
               hovered={r.id === hoveredId}
               selected={r.id === selectedId}
               onHover={onHover}

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import pg from "pg";
 import { loadConfig } from "../config/env.js";
 
@@ -15,8 +16,7 @@ export async function migrate(databaseUrl = loadConfig().DATABASE_URL): Promise<
   }
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file:///${process.argv[1].replaceAll("\\", "/")}`).href) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   await migrate();
   console.log("Database migration complete");
 }
-

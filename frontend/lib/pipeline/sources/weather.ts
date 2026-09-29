@@ -12,6 +12,7 @@ export interface StationValue extends Point {
   annualTemp: number | null
   summerTemp: number | null
   winterTemp: number | null
+  annualRainfall: number | null
   rainDays: number | null
   humidity: number | null
   sunHours: number | null
@@ -77,6 +78,7 @@ export async function fetchClimateStations(cacheDir: string, apiKey?: string): P
       // 7-8 月與 1-2 月用月份索引，不找極值 —— 極值會挑到單一異常月
       summerTemp: mean([temps[6], temps[7]].map((m) => num(m?.Mean))),
       winterTemp: mean([temps[0], temps[1]].map((m) => num(m?.Mean))),
+      annualRainfall: sum(rain.map((m) => num(m.Total))),
       rainDays: sum(rain.map((m) => num(m.GE01Days))),
       humidity: mean(humid.map((m) => num(m.Mean))),
       sunHours: sum(sun.map((m) => num(m.Total))),

@@ -6,7 +6,6 @@ import type { ScoredListing } from '@/lib/types/listing'
 
 interface Props {
   listing: ScoredListing
-  rank: number
   anchor: { x: number; y: number }
   container: { width: number; height: number }
   onHover: (id: string | null) => void
@@ -19,7 +18,7 @@ const EDGE = 8
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
 
-export function MapCard({ listing, rank, anchor, container, onHover, onViewDetails }: Props) {
+export function MapCard({ listing, anchor, container, onHover, onViewDetails }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: CARD_W, height: 140 })
 
@@ -63,7 +62,7 @@ export function MapCard({ listing, rank, anchor, container, onHover, onViewDetai
       className="pointer-events-auto absolute z-50 cursor-pointer overflow-hidden rounded-xl border border-mist bg-paper shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-nest"
     >
       <div className="max-h-full overflow-y-auto p-3">
-        <ListingScoreSummary listing={listing} rank={rank} />
+        <ListingScoreSummary listing={listing} />
       </div>
     </div>
   )

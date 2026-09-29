@@ -32,6 +32,7 @@ export interface ListingFeatures {
   annualTemp: number | null
   summerTemp: number | null
   winterTemp: number | null
+  annualRainfall: number | null
   rainDays: number | null
   humidity: number | null
   sunHours: number | null
@@ -82,8 +83,42 @@ export interface DimensionBreakdown {
 
 export interface ScoredListing extends ListingWithFeatures {
   score: number
+  semanticScore?: number
   breakdown: Record<WeightKey, DimensionBreakdown>
+  details?: Record<string, unknown>
+  matchReasons?: string[]
   dataGaps: string[]
+  facts: ListingFact[]
+  view: ListingView
+}
+
+export interface ListingFact {
+  key: string
+  label: string
+  group: string
+  value: unknown
+  displayValue: string
+  unit?: string
+  sourceName?: string
+  sourceUrl?: string
+  observedAt?: string
+  confidence?: number
+  evidence?: string
+}
+
+export interface ListingView {
+  rankLabel: string
+  locationLabel: string
+  priceText: string
+  summaryText: string
+  score: { label: string; starsText: string; fillPercent: number }
+  scores: Array<{ key: string; label: string; starsText: string; fillPercent: number; barPercent: number; pointsText: string; lead: boolean }>
+  cardFacts: Array<{ key: string; label: string; value: string; wide: boolean }>
+  detailFacts: Array<{ key: string; label: string; value: string; wide: boolean; group: string }>
+  strengths: string[]
+  tradeoffs: string[]
+  marker: { label: string; title: string; color: string; size: number; zIndex: number }
+  action: { label: string; url: string } | null
 }
 
 export interface RankResult {

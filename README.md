@@ -1,135 +1,142 @@
 # 安家 — 台灣選址房仲 Agent
 
-用自然語言描述想要的生活條件，透過多輪對話調整權重，在地圖上找到適合的房屋物件。
+用自然語言描述生活與物件需求，由後端混合 SQL 條件、向量搜尋與 deterministic ranking，將結果呈現在地圖與物件清單。
 
-Repo 是兩個各自獨立的套件：Next.js 前端在 [`frontend/`](frontend/)，推薦後端在
-[`backend/`](backend/)（Fastify + deterministic ranking engine + Pi agent）。兩邊各有自己的
-`package.json`、lockfile 與 `node_modules`，沒有 monorepo workspace 串在一起，只透過 HTTP
-（`BACKEND_URL`）溝通。
+專案包含：
 
-## Docker 一鍵啟動
+- `frontend/`：Next.js 展示層，只呼叫 API、管理 UI 狀態並直接渲染後端 `view`。
+- `backend/`：Fastify API、Agent、PostgreSQL/pgvector、搜尋、AI 資料正規化、地址定位與背景 enrich pipeline。
+- `docs/data-structures-and-flow.md`：目前資料結構與完整資料流。
+- `docs/backend-pipeline-migration-report.md`：本次後端資料管線改版與升級步驟。
 
-不需要 API key，也不需要先安裝 Node.js、PostgreSQL 或 Google Maps：
+## Docker 啟動
 
 ```bash
+cp .env.example .env
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml ps
 ```
 
-開啟 http://localhost:3000。預設使用 SQLite 示範資料、記憶體 session、規則式對話模式與
-OpenStreetMap 底圖；只有前端的 3000 port 會對外開放。
+預設服務：
+
+- PostgreSQL 16 + pgvector
+- schema migration
+- Fastify backend
+- Next.js frontend
+- Nginx gateway
+
+開啟 http://localhost:3000。
+
+標準啟動不會自動建立示範物件。物件應由 backend pipeline 抓取，或手動啟用舊相容 seed：
 
 ```bash
-# 看日誌
-docker compose -f docker-compose.prod.yml logs -f web backend
-
-# 停止
-docker compose -f docker-compose.prod.yml down
-
-# 清掉持久化資料並重新產生示範資料
-docker compose -f docker-compose.prod.yml down -v
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker-compose.prod.yml --profile legacy-data run --rm data-init
 ```
-
-複製 [`.env.example`](.env.example) 成 `.env` 可以改 port 或開啟選用整合，但零設定就能跑。
-
-### 免費／開源替代方案
-
-| 原本依賴 | 預設替代 | 金鑰 |
-| --- | --- | --- |
-| Google Maps JavaScript API | MapLibre GL JS + OpenFreeMap（OpenStreetMap 資料） | 不需要 |
-| Google Geocoding | OpenStreetMap Nominatim | 不需要 |
-| Gemini 對話模型 | 本機 deterministic parser | 不需要 |
-| PostgreSQL session | 容器記憶體 | 不需要 |
-| 物件資料庫 | 後端讀取 SQLite named volume | 不需要 |
-
-地圖會顯示 OpenStreetMap attribution，也可用 `NEXT_PUBLIC_MAP_STYLE_URL` 改接自架 MapLibre style。
-Nominatim 每次只會單線查詢、兩次請求至少間隔 1.1 秒、預設每輪最多新查
-250 筆且結果會快取；大量或週期性地址定位應改成自架 Nominatim。
-
-需要完整 LLM 對話時可以接免費的本機 OpenAI-compatible server（例如 Ollama）。在 `.env` 設定：
-
-```dotenv
-AGENT_MODE=pi
-PI_PROVIDER=custom-openai
-PI_MODEL=qwen2.5:3b
-CUSTOM_OPENAI_BASE_URL=http://host.docker.internal:11434/v1
-CUSTOM_OPENAI_API_KEY=ollama
-```
-
-`TWINKLE_API_KEY`、`TAVILY_API_KEY`、`CWA_API_KEY`、`MOENV_API_KEY` 都是選用；沒設定不影響示範資料與
-核心搜尋流程。
-
-### 更新真實資料
-
-```bash
-docker compose -f docker-compose.prod.yml --profile tools run --rm data-refresh
-```
-
-可在 `.env` 用 `GEOCODE_BUDGET` 控制這次最多新增幾筆定位，設成 `0` 可完全略過地址 API。
 
 ## 本機開發
 
-兩個資料夾各開一個終端機。
+先啟動 PostgreSQL/pgvector：
 
 ```bash
-# 1. 建立前端資料 pipeline 使用的 SQLite
-cd frontend
-pnpm install
-mkdir data                   # drizzle-kit 不會自己建目錄
-pnpm db:push                 # 建立 SQLite schema
-pnpm db:seed                 # 灌入示範資料
+docker compose up -d db
+docker compose run --rm migrate
+```
 
-# 2. 後端 → http://localhost:3001（Swagger UI 在 /docs）
-cd ../backend && pnpm install && pnpm dev
+後端：
 
-# 3. 另一個終端機啟動前端
+```bash
+cd backend
+corepack enable
+pnpm install --frozen-lockfile
+cp .env.example .env
+pnpm dev
+```
+
+前端：
+
+```bash
 cd frontend
+corepack enable
+pnpm install --frozen-lockfile
 cp .env.example .env.local
 pnpm dev
 ```
 
-## 路由
+預設網址：
 
-| 路徑 | 內容 | agent | 排序 |
-| --- | --- | --- | --- |
-| `/` | 主畫面：對話、權重面板、選區、地圖、物件卡片 | `backend/` 的 Pi agent（九個 domain tools） | 後端選行政區 → `lib/scoring` 在那些區內排物件 |
+- Frontend：http://127.0.0.1:3000
+- Backend：http://127.0.0.1:3001
+- Swagger：http://127.0.0.1:3001/docs
 
-`/` 需要 `backend/` 有在跑；沒有它，對話與選區都無法運作。頁面用同一套
-`SearchProfile`、`lib/scoring`、`components/`，設定存在 localStorage 的 profile key 下。
+## 後端資料管線
 
-## 指令
+```text
+raw source
+→ raw document
+→ AI 正規化核心資料與動態 facts
+→ 地址轉座標
+→ listings
+→ 外部 enrichment
+→ embedding
+→ 搜尋與後端 view
+```
 
-以下都在 `frontend/` 下執行。
+主要管理 API：
 
-| 指令 | 說明 |
+| API | 用途 |
 | --- | --- |
-| `pnpm dev` | 開發伺服器 |
-| `pnpm db:push` | 建立／更新資料庫 schema |
-| `pnpm db:seed` | 重新產生示範資料 |
+| `GET /pipeline/sources` | 查看原始資料來源 |
+| `PUT /pipeline/sources/:id` | 新增或更新來源 |
+| `POST /pipeline/run` | 手動執行來源 |
+| `GET /pipeline/jobs` | 查看最近工作 |
+| `GET /enrichment/sources` | 查看補充資料來源 |
+| `PUT /enrichment/sources/:id` | 新增或更新補充來源 |
+| `POST /enrichment/run` | 手動執行補充資料查詢 |
+| `POST /listings/search` | 搜尋及排名物件 |
 
-## 架構
+後端預設每 60 秒檢查到期來源。詳細設定、來源範例、migration 與操作 command 見 [後端資料管線改版與升級報告](docs/backend-pipeline-migration-report.md)。
 
-**LLM 不做排序，只做參數萃取與結果說明。** 排序一律由純函式的 deterministic scoring engine
-執行 —— 可單元測試、毫秒回應，權重面板拖動時完全不呼叫任何模型。
+## AI 與 embedding
 
-`/` 這條路徑再多一層：後端的 agent 先挑出適合的行政區（分數同樣由 deterministic ranking
-engine 產生，模型不編分數），前 6 個行政區才交給 `lib/scoring` 在區內排物件。
+沒有 embedding key 時可使用本機 hash n-gram：
 
-## 目前的資料
+```dotenv
+EMBEDDING_MODE=hash
+EMBEDDING_DIMENSIONS=1536
+```
 
-示範資料涵蓋臺北市與新北市共 20 個行政區、360 筆物件，由 `scripts/seed.ts` 確定性產生。
-氣候值為中央氣象署測站氣候平均的近似值，POI 與距離為模擬值。
-後端 fixture 涵蓋全台 32 個行政區，臺北／新北的清單與氣候值與 `scripts/seed.ts` 對齊。
-真實資料抓取與 enrich pipeline 見計畫 B。
+Raw pipeline 必須設定 AI 正規化模型：
 
-## ⚠️ 尚未準備好上線部署
+```dotenv
+DETAIL_EXTRACTION_MODE=google
+DETAIL_EXTRACTION_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=你的金鑰
+```
 
-這是本地展示用途的專案，**不要直接部署到公開網路**。`/api/rank`、`/api/agent/*`
-與 `/api/backend/*` 都沒有身分驗證、沒有速率限制，`request.json()` 也沒有限制請求大小上限。
-`/api/agent/chat` 每次請求都會呼叫後端 agent 的模型——公開曝露等於讓任何人都能免費消耗你的
-模型額度與伺服器記憶體，形成成本與記憶體的阻斷服務風險。
+或使用 OpenAI 相容 API：
 
-`/api/backend/*` 尤其要注意：它是推薦後端的**無驗證全方法代理**，等於把 `backend/` 整個
-公開出去。它的存在只為了讓 cloudflare tunnel 這類單一入口的 demo 能運作，
-本地開發、demo 沒有問題；若要對外提供服務，至少需要加上身分驗證、速率限制與請求大小限制。
+```dotenv
+DETAIL_EXTRACTION_MODE=openai
+DETAIL_EXTRACTION_MODEL=你的模型 ID
+DETAIL_EXTRACTION_BASE_URL=https://api.openai.com/v1
+DETAIL_EXTRACTION_API_KEY=你的金鑰
+```
+
+## 常用指令
+
+```bash
+cd backend
+pnpm db:migrate
+pnpm typecheck
+pnpm build
+
+cd ../frontend
+pnpm typecheck
+pnpm build -- --webpack
+```
+
+## 內部 API
+
+`/pipeline/*`、`/enrichment/*`、`/listings/ingest` 與 `/api/backend/*` 沒有管理員驗證。正式環境應只允許內網或受保護的管理入口存取。`ENABLE_BACKEND_PROXY` 預設關閉。
+
+Nominatim 查詢會序列執行、預設至少間隔 1.1 秒，並使用 PostgreSQL 快取。大量或長期商業使用應改為自架定位服務。

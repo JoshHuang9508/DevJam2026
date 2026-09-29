@@ -133,6 +133,10 @@ export function AgentApp() {
           message,
         }),
       })
+      if (!response.ok) {
+        const error = await response.json().catch(() => null) as { message?: string } | null
+        throw new Error(error?.message ?? `HTTP ${response.status}`)
+      }
       if (!response.body) throw new Error('後端沒有回傳串流')
 
       const reader = response.body.getReader()
@@ -357,7 +361,7 @@ export function AgentApp() {
             {s.loading && <span className="text-neutral-400">排序中…</span>}
             {s.error && <span className="text-red-600">{s.error}</span>}
             {status && !status.listingsDb && (
-              <span className="text-amber-700">物件資料庫未建立，請執行 pnpm db:push &amp;&amp; pnpm db:seed</span>
+              <span className="text-amber-700">物件資料庫尚未完成初始化</span>
             )}
           </div>
         )}

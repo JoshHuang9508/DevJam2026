@@ -7,6 +7,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
 RUN pnpm build
+RUN cp src/database/schema.sql dist/database/schema.sql
 
 FROM base AS runtime
 ENV NODE_ENV=production

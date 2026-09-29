@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from 'react'
 import type { Map as MapLibreMap, Marker } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { inBounds, type MapBounds } from '@/lib/client/bounds'
-import { rankColor, scorePercent } from '@/lib/client/score'
 import type { ScoredListing } from '@/lib/types/listing'
 import { animateCamera } from './animateCamera'
 import { MapCard } from './MapCard'
@@ -17,9 +16,7 @@ import {
   SELECT_ZOOM,
 } from './mapStyle'
 
-const MARKER_SIZE = { base: 32, top: 38, active: 46 } as const
-
-const markerZIndex = (index: number, total: number) => total - index
+const ACTIVE_MARKER_SIZE = 46
 
 interface Props {
   results: ScoredListing[]
@@ -150,7 +147,7 @@ export function MapView({
     if (!map || !maplibre) return
 
     const shouldShow = new Set<string>()
-    results.forEach((result, index) => {
+    results.forEach((result) => {
       const pinned = result.id === selectedId || result.id === hoveredId
       if (!pinned && viewport && !inBounds(result, viewport)) return
       shouldShow.add(result.id)
@@ -159,8 +156,8 @@ export function MapView({
       if (!entry) {
         const el = document.createElement('button')
         el.type = 'button'
-        el.title = `${result.title}｜${scorePercent(result.score)} 分`
-        el.textContent = String(index + 1)
+        el.title = result.view.marker.title
+        el.textContent = result.view.marker.label
         el.style.cssText = [
           'display:grid',
           'place-items:center',
@@ -222,15 +219,15 @@ export function MapView({
   }, [map, fitToken, results])
 
   useEffect(() => {
-    results.forEach((result, index) => {
+    results.forEach((result) => {
       const entry = markersRef.current.get(result.id)
       if (!entry) return
       const active = result.id === hoveredId || result.id === selectedId
-      const size = active ? MARKER_SIZE.active : index < 3 ? MARKER_SIZE.top : MARKER_SIZE.base
+      const size = active ? ACTIVE_MARKER_SIZE : result.view.marker.size
       entry.el.style.width = `${size}px`
       entry.el.style.height = `${size}px`
-      entry.el.style.background = rankColor(index, results.length)
-      entry.el.style.zIndex = String(active ? results.length + 1 : markerZIndex(index, results.length))
+      entry.el.style.background = result.view.marker.color
+      entry.el.style.zIndex = String(active ? results.length + 1 : result.view.marker.zIndex)
       entry.el.style.boxShadow = active
         ? '0 3px 12px rgb(15 23 42 / .5)'
         : '0 2px 6px rgb(15 23 42 / .4)'
@@ -297,7 +294,6 @@ export function MapView({
         <MapCard
           key={shown.id}
           listing={shown}
-          rank={shownIndex + 1}
           anchor={anchor}
           container={containerSize}
           onHover={onHover}

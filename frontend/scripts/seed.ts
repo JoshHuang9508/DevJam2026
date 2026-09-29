@@ -3,9 +3,8 @@
  * 氣候值取自中央氣象署測站氣候平均的近似值，POI 與距離為模擬值。
  * 真實抓取與 enrich 見計畫 B。
  */
-import Database from 'better-sqlite3'
-import { mkdirSync } from 'node:fs'
 import { estimateCommuteMinutes } from '../lib/geo'
+import { ingestListings } from './ingest-client'
 
 /** 確定性亂數：線性同餘產生器。不得改用 Math.random()，否則測試無法重現。 */
 function makeRng(seed: number) {
@@ -178,47 +177,22 @@ function fillPercentiles(rows: Row[]): void {
   }
 }
 
-function main(): void {
-  mkdirSync('./data', { recursive: true })
-  const db = new Database(process.env.DATABASE_PATH ?? './data/app.db')
+async function main(): Promise<void> {
   const rows = build()
   fillPercentiles(rows)
-
-  db.exec('DELETE FROM listing_features; DELETE FROM listings; DELETE FROM districts;')
-
-  const insertDistrict = db.prepare(
-    `INSERT INTO districts (id, city, name, centroid_lat, centroid_lng, boundary)
-     VALUES (?, ?, ?, ?, ?, NULL)`,
-  )
-  const insertListing = db.prepare(
-    `INSERT INTO listings (id, source, source_id, mode, url, title, scraped_at, city, district,
-      address, lat, lng, price, unit_price, area, layout, rooms, floor, total_floor, age,
-      building_type, has_elevator, has_parking)
-     VALUES (@id, @source, @sourceId, @mode, @url, @title, @scrapedAt, @city, @district,
-      @address, @lat, @lng, @price, @unitPrice, @area, @layout, @rooms, @floor, @totalFloor,
-      @age, @buildingType, @hasElevator, @hasParking)`,
-  )
-
-  const featureCols = Object.keys(rows[0].f)
-  const insertFeatures = db.prepare(
-    `INSERT INTO listing_features (listing_id, ${featureCols.join(', ')})
-     VALUES (?, ${featureCols.map(() => '?').join(', ')})`,
-  )
-
-  db.transaction(() => {
-    for (const d of DISTRICTS) {
-      insertDistrict.run(`${d.city}-${d.name}`, d.city, d.name, d.lat, d.lng)
-    }
-    for (const r of rows) {
-      const { f, ...listing } = r
-      insertListing.run(listing)
-      insertFeatures.run(r.id, ...featureCols.map((c) => f[c]))
-    }
-  })()
-
-  const count = db.prepare('SELECT COUNT(*) AS n FROM listings').get() as { n: number }
-  console.log(`已寫入 ${count.n} 筆物件、${DISTRICTS.length} 個行政區`)
-  db.close()
+  const items = rows.map(({ f, ...listing }) => ({
+    ...listing,
+    description: `${listing.title}，位於 ${listing.floor} 樓，共 ${listing.totalFloor} 樓，${listing.hasElevator ? '有電梯' : '無電梯'}，${listing.hasParking ? '有車位' : '無車位'}。`,
+    hasElevator: Boolean(listing.hasElevator),
+    hasParking: Boolean(listing.hasParking),
+    details: {},
+    features: Object.fromEntries(Object.entries(f).map(([key, value]) => [key.replace(/_([a-z0-9])/g, (_, letter: string) => letter.toUpperCase()), value])),
+  }))
+  const result = await ingestListings('seed', items, { onlyIfEmpty: true })
+  console.log(`已寫入 ${items.length} 筆物件，更新 ${result.updated}、略過 ${result.skipped}、刪除 ${result.deleted}`)
 }
 
-main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})
