@@ -24,6 +24,7 @@ export interface ListingAssessment {
 }
 
 export interface ListingView {
+  title: string
   rankLabel: string
   locationLabel: string
   cardFacts: Array<{ key: string; label: string; value: string; wide: boolean }>
@@ -34,8 +35,7 @@ export interface ListingView {
 
 export interface ScoredListing {
   id: string
-  title: string
-  source: { id: string; name: string; url: string }
+  source: { id: string; itemId: string; url: string }
   location: { address: string; lat: number; lng: number }
   facts: ListingFact[]
   assessment: ListingAssessment

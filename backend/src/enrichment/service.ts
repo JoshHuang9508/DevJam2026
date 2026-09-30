@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import pg from "pg";
 import { z } from "zod";
-import type { DetailExtractor } from "../details/extractor.js";
+import type { FactExtractor } from "../facts/extractor.js";
 import type { EmbeddingProvider } from "../embeddings/provider.js";
 import { vectorLiteral } from "../embeddings/provider.js";
 
@@ -27,10 +27,6 @@ export interface EnrichmentService {
 
 type ListingRow = {
   id: string;
-  title: string;
-  description: string;
-  city: string;
-  district: string;
   address: string;
   lat: number;
   lng: number;
@@ -46,7 +42,7 @@ type SourceRow = {
   enabled: boolean;
 };
 
-export function createEnrichmentService(options: { databaseUrl: string; embeddings: EmbeddingProvider; details: DetailExtractor; timeoutMs?: number }): EnrichmentService {
+export function createEnrichmentService(options: { databaseUrl: string; embeddings: EmbeddingProvider; facts: FactExtractor; timeoutMs?: number }): EnrichmentService {
   const pool = new Pool({ connectionString: options.databaseUrl });
   const timeoutMs = options.timeoutMs ?? 20_000;
 
@@ -81,9 +77,9 @@ export function createEnrichmentService(options: { databaseUrl: string; embeddin
           const url = fillTemplate(source.url_template, listing);
           try {
             const page = await fetchPage(url, timeoutMs, signal);
-            const extracted = await options.details.extract([
-              `物件：${listing.title}`,
-              `位置：${listing.city}${listing.district}${listing.address}`,
+            const extracted = await options.facts.extract([
+              `物件：${factValue(listing.facts, "listingName") ?? listing.address}`,
+              `位置：${listing.address}`,
               `資料來源：${source.name}`,
               page,
             ].join("\n"), signal);
@@ -94,8 +90,8 @@ export function createEnrichmentService(options: { databaseUrl: string; embeddin
             const embedding = await options.embeddings.embed(semanticText, signal);
             const contentHash = createHash("sha256").update(JSON.stringify({ semanticText, facts })).digest("hex");
             await pool.query(
-              `UPDATE listings SET facts=$2::jsonb, semantic_text=$3, embedding=$4::vector, embedding_model=$5, detail_extraction_model=$6, content_hash=$7, indexed_at=now() WHERE id=$1`,
-              [listing.id, JSON.stringify(facts), semanticText, vectorLiteral(embedding), options.embeddings.model, options.details.model, contentHash],
+              `UPDATE listings SET facts=$2::jsonb, semantic_text=$3, embedding=$4::vector, embedding_model=$5, extraction_model=$6, content_hash=$7, indexed_at=now() WHERE id=$1`,
+              [listing.id, JSON.stringify(facts), semanticText, vectorLiteral(embedding), options.embeddings.model, options.facts.model, contentHash],
             );
             await pool.query(
               `INSERT INTO enrichment_runs (listing_id, source_id, url, status, fact_count, fetched_at)
@@ -127,8 +123,8 @@ export function createEnrichmentService(options: { databaseUrl: string; embeddin
 
 async function loadListings(pool: pg.Pool, ids: string[] | undefined, limit: number): Promise<ListingRow[]> {
   const result = ids?.length
-    ? await pool.query<ListingRow>("SELECT id, title, description, city, district, address, lat, lng, facts FROM listings WHERE id = ANY($1::text[]) LIMIT $2", [ids, limit])
-    : await pool.query<ListingRow>("SELECT id, title, description, city, district, address, lat, lng, facts FROM listings ORDER BY indexed_at ASC LIMIT $1", [limit]);
+    ? await pool.query<ListingRow>("SELECT id, address, lat, lng, facts FROM listings WHERE id = ANY($1::text[]) LIMIT $2", [ids, limit])
+    : await pool.query<ListingRow>("SELECT id, address, lat, lng, facts FROM listings ORDER BY indexed_at ASC LIMIT $1", [limit]);
   return result.rows;
 }
 
@@ -143,8 +139,8 @@ function fillTemplate(template: string, listing: ListingRow): string {
   const values: Record<string, string> = {
     id: listing.id,
     address: listing.address,
-    city: listing.city,
-    district: listing.district,
+    city: String(factValue(listing.facts, "city") ?? ""),
+    district: String(factValue(listing.facts, "district") ?? ""),
     lat: String(listing.lat),
     lng: String(listing.lng),
   };
@@ -180,7 +176,7 @@ function mergeFacts(existing: unknown, sourceId: string, incoming: Array<Record<
 
 function buildSemanticText(listing: ListingRow, facts: Array<Record<string, unknown>>): string {
   const factText = facts.map((fact) => `${String(fact.label ?? fact.key ?? "")}:${String(fact.displayValue ?? fact.value ?? "")}`);
-  return [listing.title, listing.description, `${listing.city}${listing.district}`, listing.address, ...factText].filter(Boolean).join("；");
+  return [listing.address, ...factText].filter(Boolean).join("；");
 }
 
 function toSource(row: SourceRow): EnrichmentSourceInput {
@@ -189,7 +185,13 @@ function toSource(row: SourceRow): EnrichmentSourceInput {
 
 function applicable(source: SourceRow, listing: ListingRow): boolean {
   const facts = Array.isArray(listing.facts) ? listing.facts.filter((fact): fact is Record<string, unknown> => Boolean(fact) && typeof fact === "object") : [];
-  const available = new Set(["id", "title", "description", "city", "district", "address", "lat", "lng", ...facts.map((fact) => String(fact.key ?? ""))]);
+  const available = new Set(["id", "address", "lat", "lng", ...facts.map((fact) => String(fact.key ?? ""))]);
   const scopeKey = source.scope === "address" ? "address" : source.scope === "district" ? "district" : source.scope === "city" ? "city" : "id";
   return available.has(scopeKey) && source.requires.every((key) => available.has(key));
+}
+
+function factValue(facts: unknown, key: string): unknown {
+  if (!Array.isArray(facts)) return undefined;
+  const fact = facts.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).key === key) as Record<string, unknown> | undefined;
+  return fact?.value;
 }

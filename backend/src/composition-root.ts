@@ -6,7 +6,7 @@ import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
 import { createEmbeddingProvider } from "./embeddings/provider.js";
 import { createListingEvaluator } from "./assessment/evaluator.js";
-import { createDetailExtractor } from "./details/extractor.js";
+import { createFactExtractor } from "./facts/extractor.js";
 import { createListingIngestion } from "./database/listing-ingestion.js";
 import { createGeocodingService } from "./geocoding/service.js";
 import { createEnrichmentService } from "./enrichment/service.js";
@@ -40,10 +40,10 @@ export async function createApplication(config: AppConfig) {
     model: config.EMBEDDING_MODEL,
     dimensions: config.EMBEDDING_DIMENSIONS,
   });
-  const requestedDetailMode = config.DETAIL_EXTRACTION_MODE;
-  const detailMode = requestedDetailMode === "auto" ? config.DETAIL_EXTRACTION_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : "off" : requestedDetailMode;
-  const detailApiKey = config.DETAIL_EXTRACTION_API_KEY ?? (detailMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
-  const detailModel = config.DETAIL_EXTRACTION_MODEL ?? (detailMode === "google" && config.PI_PROVIDER !== "google" ? "gemini-2.5-flash" : config.PI_MODEL);
+  const requestedFactMode = config.FACT_EXTRACTION_MODE;
+  const factMode = requestedFactMode === "auto" ? config.FACT_EXTRACTION_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : config.CUSTOM_OPENAI_API_KEY ? "openai" : "off" : requestedFactMode;
+  const factApiKey = config.FACT_EXTRACTION_API_KEY ?? (factMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
+  const factModel = config.FACT_EXTRACTION_MODEL ?? (factMode === "google" && config.PI_PROVIDER !== "google" ? "gemini-2.5-flash" : config.PI_MODEL);
   const requestedAssessmentMode = config.ASSESSMENT_MODE;
   const assessmentMode = requestedAssessmentMode === "auto" ? config.ASSESSMENT_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : config.CUSTOM_OPENAI_API_KEY ? "openai" : "off" : requestedAssessmentMode;
   const assessmentApiKey = config.ASSESSMENT_API_KEY ?? (assessmentMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
@@ -52,9 +52,9 @@ export async function createApplication(config: AppConfig) {
   const assessmentBaseUrl = config.ASSESSMENT_BASE_URL ?? (assessmentUsesCustomOpenAi ? config.CUSTOM_OPENAI_BASE_URL : "https://api.openai.com/v1");
   const evaluator = createListingEvaluator({ mode: assessmentMode, model: assessmentModel, baseUrl: assessmentBaseUrl, ...(assessmentApiKey ? { apiKey: assessmentApiKey } : {}) });
   const listings = createListingsProvider({ databaseUrl: config.DATABASE_URL, embeddings, evaluator });
-  const details = createDetailExtractor({ mode: detailMode, model: detailModel, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
-  const ingestion = createListingIngestion({ databaseUrl: config.DATABASE_URL, embeddings, details });
-  const enrichment = createEnrichmentService({ databaseUrl: config.DATABASE_URL, embeddings, details });
+  const factExtractor = createFactExtractor({ mode: factMode, model: factModel, baseUrl: config.FACT_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(factApiKey ? { apiKey: factApiKey } : {}) });
+  const ingestion = createListingIngestion({ databaseUrl: config.DATABASE_URL, embeddings });
+  const enrichment = createEnrichmentService({ databaseUrl: config.DATABASE_URL, embeddings, facts: factExtractor });
   const geocoding = createGeocodingService({
     databaseUrl: config.DATABASE_URL,
     baseUrl: config.NOMINATIM_URL,
@@ -63,7 +63,7 @@ export async function createApplication(config: AppConfig) {
     budget: config.GEOCODE_BUDGET,
     minIntervalMs: config.GEOCODE_MIN_INTERVAL_MS,
   });
-  const normalizer = createRawNormalizer({ mode: detailMode, model: detailModel, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
+  const normalizer = createRawNormalizer({ mode: factMode, model: factModel, baseUrl: config.FACT_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(factApiKey ? { apiKey: factApiKey } : {}) });
   const pipeline = createPipelineService({ databaseUrl: config.DATABASE_URL, normalizer, geocoding, ingestion, enrichment, fetchTimeoutMs: config.PIPELINE_FETCH_TIMEOUT_MS });
   pipeline.start(config.PIPELINE_POLL_INTERVAL_MS);
   // 沒有金鑰就是 null，domain-tools 會整組跳過不註冊

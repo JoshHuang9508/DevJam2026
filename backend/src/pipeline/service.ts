@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
 import { z } from "zod";
-import type { ListingIngestion, IngestListing } from "../database/listing-ingestion.js";
+import type { ListingIngestion, IngestListing, ListingFact } from "../database/listing-ingestion.js";
 import type { EnrichmentService } from "../enrichment/service.js";
 import type { GeocodingService } from "../geocoding/service.js";
 import type { NormalizedListing, RawNormalizer } from "./normalizer.js";
@@ -178,13 +178,12 @@ async function processDocument(
     const items: IngestListing[] = [];
     const errors: Array<{ sourceId: string; url: string; message: string }> = [];
     for (const listing of normalized) {
-      const location = parseLocation(listing);
-      if (!listing.address || !location.city || !location.district) {
-        errors.push({ sourceId: source.id, url: listing.url ?? document.url, message: `缺少可定位地址：${listing.title}` });
+      if (!listing.address) {
+        errors.push({ sourceId: source.id, url: listing.url ?? document.url, message: `缺少可定位地址：${factText(listing.facts, "listingName") ?? document.url}` });
         continue;
       }
-      if (!listing.mode && !source.default_mode) {
-        errors.push({ sourceId: source.id, url: listing.url ?? document.url, message: `無法確認買賣或租賃：${listing.title}` });
+      if (!factTransactionMode(listing.facts) && !source.default_mode) {
+        errors.push({ sourceId: source.id, url: listing.url ?? document.url, message: `無法確認買賣或租賃：${factText(listing.facts, "listingName") ?? listing.address}` });
         continue;
       }
       const [point] = await options.geocoding.lookup(jobId, [listing.address], signal);
@@ -192,7 +191,7 @@ async function processDocument(
         errors.push({ sourceId: source.id, url: listing.url ?? document.url, message: `地址無法轉換座標：${listing.address}` });
         continue;
       }
-      items.push(toIngestListing(source, document.url, listing, location, point));
+      items.push(toIngestListing(source, document.url, listing, options.normalizer.model, point));
     }
     if (items.length) await options.ingestion.ingest(jobId, items, signal);
     await pool.query("UPDATE raw_documents SET status='processed', processed_at=now(), error=$2 WHERE id=$1", [documentId, errors.length ? errors.map((item) => item.message).join("；").slice(0, 2000) : null]);
@@ -231,55 +230,75 @@ async function fetchDocument(url: string, headers: Record<string, string>, timeo
   return { url: response.url || url, contentType: response.headers.get("content-type") ?? "text/plain", content: (await response.text()).slice(0, 500_000) };
 }
 
-function toIngestListing(source: SourceRow, documentUrl: string, listing: NormalizedListing, location: { city: string; district: string }, point: NonNullable<Awaited<ReturnType<GeocodingService["lookup"]>>[number]>): IngestListing {
-  const sourceId = listing.sourceId ?? sha(`${listing.url ?? documentUrl}|${listing.title}|${listing.address}`).slice(0, 24);
+function toIngestListing(source: SourceRow, documentUrl: string, listing: NormalizedListing, extractionModel: string, point: NonNullable<Awaited<ReturnType<GeocodingService["lookup"]>>[number]>): IngestListing {
+  const sourceId = listing.sourceId ?? sha(`${listing.url ?? documentUrl}|${listing.address}`).slice(0, 24);
   const observedAt = new Date().toISOString();
   const listingUrl = resolveUrl(listing.url, documentUrl);
+  const location = parseLocation(listing.address!);
+  const facts: ListingFact[] = listing.facts.map((fact) => {
+    const value = normalizeFactValue(fact.key, fact.value);
+    return { ...fact, value, displayValue: fact.displayValue ?? displayValue(value, fact.unit), sourceName: source.name, sourceUrl: listingUrl, observedAt };
+  });
+  if (source.default_mode && !factTransactionMode(facts)) facts.push(systemFact("transactionMode", "交易類型", "交易", source.default_mode, source.default_mode === "sale" ? "買賣" : "租賃", source, listingUrl, observedAt));
+  if (location.city && !factText(facts, "city")) facts.push(systemFact("city", "縣市", "位置", location.city, location.city, source, listingUrl, observedAt));
+  if (location.district && !factText(facts, "district")) facts.push(systemFact("district", "行政區", "位置", location.district, location.district, source, listingUrl, observedAt));
   return {
     id: `${source.id}:${sourceId}`,
     source: source.id,
     sourceId,
-    mode: listing.mode ?? source.default_mode!,
     url: listingUrl,
-    title: listing.title,
-    description: listing.description,
     scrapedAt: Date.now(),
-    city: location.city,
-    district: location.district,
     address: listing.address!,
     lat: point.lat,
     lng: point.lng,
     geocodeSource: point.source,
     geocodePrecision: point.precision,
     geocodeMatchedAddress: point.matchedAddress,
-    price: listing.price ?? 0,
-    unitPrice: listing.unitPrice ?? 0,
-    area: listing.area ?? 0,
-    layout: listing.layout ?? "",
-    rooms: listing.rooms ?? 0,
-    floor: listing.floor ?? 0,
-    totalFloor: listing.totalFloor ?? 0,
-    age: listing.age ?? 0,
-    buildingType: listing.buildingType ?? "",
-    hasElevator: listing.hasElevator ?? false,
-    hasParking: listing.hasParking ?? false,
-    details: { _missingCore: missingCore(listing) },
-    features: {},
-    facts: listing.facts.map((fact) => ({ ...fact, sourceName: source.name, sourceUrl: listingUrl, observedAt })),
+    extractionModel,
+    facts,
   };
 }
 
-function parseLocation(listing: NormalizedListing): { city: string; district: string } {
-  const address = listing.address?.replace(/^\d{3,5}/, "") ?? "";
-  const city = listing.city ?? address.match(/^(.+?[縣市])/)?.[1] ?? "";
-  const afterCity = city ? address.slice(address.indexOf(city) + city.length) : address;
-  const district = listing.district ?? afterCity.match(/^(.+?[區鄉鎮市])/)?.[1] ?? "";
+function parseLocation(rawAddress: string): { city: string; district: string } {
+  const address = rawAddress.replace(/^\d{3,5}/, "");
+  const matchedCity = address.match(/^(.+?[縣市])/)?.[1] ?? "";
+  const city = matchedCity.replace(/台/g, "臺");
+  const afterCity = matchedCity ? address.slice(matchedCity.length) : address;
+  const district = afterCity.match(/^(.+?[區鄉鎮市])/)?.[1] ?? "";
   return { city, district };
 }
 
-function missingCore(listing: NormalizedListing): string[] {
-  const keys = ["price", "unitPrice", "area", "layout", "rooms", "floor", "totalFloor", "age", "buildingType", "hasElevator", "hasParking"] as const;
-  return keys.filter((key) => listing[key] === undefined);
+function factText(facts: Array<{ key: string; value: unknown }>, key: string): string | undefined {
+  const value = facts.find((fact) => fact.key === key)?.value;
+  return typeof value === "string" ? value : undefined;
+}
+
+function factTransactionMode(facts: Array<{ key: string; value: unknown }>): "sale" | "rent" | undefined {
+  const value = facts.find((fact) => fact.key === "transactionMode")?.value;
+  const normalized = normalizeFactValue("transactionMode", value);
+  return normalized === "sale" || normalized === "rent" ? normalized : undefined;
+}
+
+function systemFact(key: string, label: string, group: string, value: string, display: string, source: SourceRow, sourceUrl: string, observedAt: string): ListingFact {
+  return { key, label, group, value, displayValue: display, sourceName: source.name, sourceUrl, observedAt, confidence: 1, evidence: "來源設定或地址解析" };
+}
+
+function displayValue(value: unknown, unit?: string): string {
+  const text = Array.isArray(value) ? value.join("、") : String(value);
+  return `${text}${unit ? ` ${unit}` : ""}`;
+}
+
+function normalizeFactValue(key: string, value: unknown): unknown {
+  if (key === "city" && typeof value === "string") return value.replace(/台/g, "臺");
+  if (key === "transactionMode" && typeof value === "string") {
+    if (["sale", "買賣", "出售", "售屋"].includes(value)) return "sale";
+    if (["rent", "租賃", "出租", "租屋"].includes(value)) return "rent";
+  }
+  if (["hasElevator", "hasParking"].includes(key) && typeof value === "string") {
+    if (["true", "有", "是"].includes(value.toLowerCase())) return true;
+    if (["false", "無", "否"].includes(value.toLowerCase())) return false;
+  }
+  return value;
 }
 
 function readable(content: string, contentType: string): string {

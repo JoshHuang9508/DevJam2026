@@ -1,6 +1,6 @@
 # 築巢 — 台灣選址房仲 Agent
 
-用自然語言描述生活與物件需求，由後端混合 SQL 條件、向量搜尋與 deterministic ranking，將結果呈現在地圖與物件清單。
+用自然語言描述生活與物件需求，由後端混合 facts 條件、向量搜尋與 AI 評估，將結果呈現在地圖與物件清單。
 
 專案包含：
 
@@ -27,11 +27,7 @@ docker compose -f docker-compose.prod.yml ps
 
 開啟 http://localhost:3000。
 
-標準啟動不會自動建立示範物件。物件應由 backend pipeline 抓取，或手動啟用舊相容 seed：
-
-```bash
-docker compose -f docker-compose.prod.yml --profile legacy-data run --rm data-init
-```
+標準啟動不會自動建立示範物件。物件由 backend pipeline 抓取與處理。
 
 ## 本機開發
 
@@ -73,7 +69,7 @@ pnpm dev
 ```text
 raw source
 → raw document
-→ AI 正規化核心資料與動態 facts
+→ AI 萃取地址與動態 facts
 → 地址轉座標
 → listings
 → 外部 enrichment
@@ -110,18 +106,18 @@ EMBEDDING_DIMENSIONS=1536
 Raw pipeline 必須設定 AI 正規化模型：
 
 ```dotenv
-DETAIL_EXTRACTION_MODE=google
-DETAIL_EXTRACTION_MODEL=gemini-2.5-flash
+FACT_EXTRACTION_MODE=google
+FACT_EXTRACTION_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=你的金鑰
 ```
 
 或使用 OpenAI 相容 API：
 
 ```dotenv
-DETAIL_EXTRACTION_MODE=openai
-DETAIL_EXTRACTION_MODEL=你的模型 ID
-DETAIL_EXTRACTION_BASE_URL=https://api.openai.com/v1
-DETAIL_EXTRACTION_API_KEY=你的金鑰
+FACT_EXTRACTION_MODE=openai
+FACT_EXTRACTION_MODEL=你的模型 ID
+FACT_EXTRACTION_BASE_URL=https://api.openai.com/v1
+FACT_EXTRACTION_API_KEY=你的金鑰
 ```
 
 搜尋評分由 AI 讀取候選物件的全部 facts 後產生。可沿用 Gemini 或自訂 OpenAI 相容服務，也可設定獨立模型：

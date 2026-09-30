@@ -43,10 +43,10 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
-      DETAIL_EXTRACTION_MODE: ${DETAIL_EXTRACTION_MODE:-auto}
-      DETAIL_EXTRACTION_MODEL: ${DETAIL_EXTRACTION_MODEL:-}
-      DETAIL_EXTRACTION_BASE_URL: ${DETAIL_EXTRACTION_BASE_URL:-}
-      DETAIL_EXTRACTION_API_KEY: ${DETAIL_EXTRACTION_API_KEY:-}
+      FACT_EXTRACTION_MODE: ${FACT_EXTRACTION_MODE:-auto}
+      FACT_EXTRACTION_MODEL: ${FACT_EXTRACTION_MODEL:-}
+      FACT_EXTRACTION_BASE_URL: ${FACT_EXTRACTION_BASE_URL:-}
+      FACT_EXTRACTION_API_KEY: ${FACT_EXTRACTION_API_KEY:-}
       ASSESSMENT_MODE: ${ASSESSMENT_MODE:-auto}
       ASSESSMENT_MODEL: ${ASSESSMENT_MODEL:-}
       ASSESSMENT_BASE_URL: ${ASSESSMENT_BASE_URL:-}
@@ -87,18 +87,6 @@ services:
       retries: 10
       start_period: 10s
 
-  data-init:
-    profiles: ["legacy-data"]
-    build:
-      context: ./frontend
-      target: tools
-    depends_on:
-      backend:
-        condition: service_healthy
-    command: ["pnpm", "db:seed"]
-    environment:
-      INGEST_URL: http://backend:3001/listings/ingest
-
   web:
     build:
       context: ./frontend
@@ -134,22 +122,5 @@ services:
       - ./deploy/nginx.conf:/etc/nginx/nginx.conf:ro
       - ${BASIC_AUTH_FILE:-./deploy/.htpasswd}:/etc/nginx/auth/.htpasswd:ro
 
-  data-refresh:
-    profiles: ["tools"]
-    build:
-      context: ./frontend
-      target: tools
-    depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      INGEST_URL: http://backend:3001/listings/ingest
-      PIPELINE_CACHE_DIR: /app/cache
-      CWA_API_KEY: ${CWA_API_KEY:-}
-      MOENV_API_KEY: ${MOENV_API_KEY:-}
-    volumes:
-      - pipeline-cache:/app/cache
-
 volumes:
   postgres-data:
-  pipeline-cache:

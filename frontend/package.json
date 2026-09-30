@@ -7,9 +7,7 @@
     "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "predev": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
-    "start": "next start",
-    "db:seed": "tsx scripts/seed.ts",
-    "fetch:data": "tsx scripts/fetch-datasets.ts"
+    "start": "next start"
   },
   "dependencies": {
     "@radix-ui/react-slider": "^1.4.7",
@@ -27,10 +25,8 @@
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "fflate": "^0.8.3",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }
 }

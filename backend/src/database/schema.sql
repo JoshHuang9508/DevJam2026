@@ -4,59 +4,70 @@ CREATE TABLE IF NOT EXISTS listings (
   id TEXT PRIMARY KEY,
   source TEXT NOT NULL,
   source_id TEXT NOT NULL,
-  mode TEXT NOT NULL CHECK (mode IN ('sale', 'rent')),
   url TEXT NOT NULL,
-  title TEXT NOT NULL,
-  description TEXT NOT NULL DEFAULT '',
   scraped_at TIMESTAMPTZ NOT NULL,
-  city TEXT NOT NULL,
-  district TEXT NOT NULL,
   address TEXT NOT NULL,
   lat DOUBLE PRECISION NOT NULL,
   lng DOUBLE PRECISION NOT NULL,
   geocode_source TEXT NOT NULL DEFAULT 'provided',
   geocode_precision TEXT NOT NULL DEFAULT 'unknown',
   geocode_matched_address TEXT,
-  price DOUBLE PRECISION NOT NULL,
-  unit_price DOUBLE PRECISION NOT NULL,
-  area DOUBLE PRECISION NOT NULL,
-  layout TEXT NOT NULL,
-  rooms INTEGER NOT NULL,
-  floor INTEGER NOT NULL,
-  total_floor INTEGER NOT NULL,
-  age DOUBLE PRECISION NOT NULL,
-  building_type TEXT NOT NULL,
-  has_elevator BOOLEAN NOT NULL,
-  has_parking BOOLEAN NOT NULL,
-  details JSONB NOT NULL DEFAULT '{}'::jsonb,
-  features JSONB NOT NULL DEFAULT '{}'::jsonb,
   facts JSONB NOT NULL DEFAULT '[]'::jsonb,
   semantic_text TEXT NOT NULL,
   embedding vector(1536),
   embedding_model TEXT,
-  detail_extraction_model TEXT,
+  extraction_model TEXT,
   content_hash TEXT NOT NULL,
   source_hash TEXT NOT NULL,
   ingest_run_id UUID,
   indexed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   search_document TSVECTOR GENERATED ALWAYS AS (
-    to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(description, '') || ' ' || coalesce(address, '') || ' ' || coalesce(semantic_text, ''))
+    to_tsvector('simple', coalesce(address, '') || ' ' || coalesce(semantic_text, ''))
   ) STORED,
   UNIQUE(source, source_id)
 );
 
-CREATE INDEX IF NOT EXISTS listings_mode_city_district_idx ON listings(mode, city, district);
-CREATE INDEX IF NOT EXISTS listings_filter_idx ON listings(mode, price, area, rooms, age);
-CREATE INDEX IF NOT EXISTS listings_search_document_idx ON listings USING gin(search_document);
-CREATE INDEX IF NOT EXISTS listings_embedding_idx ON listings USING hnsw (embedding vector_cosine_ops);
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'listings' AND column_name = 'mode') THEN
+    TRUNCATE TABLE listings CASCADE;
+  END IF;
+END $$;
 
-ALTER TABLE listings ADD COLUMN IF NOT EXISTS detail_extraction_model TEXT;
+DROP INDEX IF EXISTS listings_mode_city_district_idx;
+DROP INDEX IF EXISTS listings_filter_idx;
+ALTER TABLE listings DROP COLUMN IF EXISTS search_document;
+ALTER TABLE listings DROP COLUMN IF EXISTS mode;
+ALTER TABLE listings DROP COLUMN IF EXISTS title;
+ALTER TABLE listings DROP COLUMN IF EXISTS description;
+ALTER TABLE listings DROP COLUMN IF EXISTS city;
+ALTER TABLE listings DROP COLUMN IF EXISTS district;
+ALTER TABLE listings DROP COLUMN IF EXISTS price;
+ALTER TABLE listings DROP COLUMN IF EXISTS unit_price;
+ALTER TABLE listings DROP COLUMN IF EXISTS area;
+ALTER TABLE listings DROP COLUMN IF EXISTS layout;
+ALTER TABLE listings DROP COLUMN IF EXISTS rooms;
+ALTER TABLE listings DROP COLUMN IF EXISTS floor;
+ALTER TABLE listings DROP COLUMN IF EXISTS total_floor;
+ALTER TABLE listings DROP COLUMN IF EXISTS age;
+ALTER TABLE listings DROP COLUMN IF EXISTS building_type;
+ALTER TABLE listings DROP COLUMN IF EXISTS has_elevator;
+ALTER TABLE listings DROP COLUMN IF EXISTS has_parking;
+ALTER TABLE listings DROP COLUMN IF EXISTS details;
+ALTER TABLE listings DROP COLUMN IF EXISTS features;
+ALTER TABLE listings DROP COLUMN IF EXISTS detail_extraction_model;
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS extraction_model TEXT;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS source_hash TEXT NOT NULL DEFAULT '';
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS ingest_run_id UUID;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_source TEXT NOT NULL DEFAULT 'provided';
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_precision TEXT NOT NULL DEFAULT 'unknown';
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS geocode_matched_address TEXT;
 ALTER TABLE listings ADD COLUMN IF NOT EXISTS facts JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE listings ADD COLUMN IF NOT EXISTS search_document TSVECTOR GENERATED ALWAYS AS (
+  to_tsvector('simple', coalesce(address, '') || ' ' || coalesce(semantic_text, ''))
+) STORED;
+CREATE INDEX IF NOT EXISTS listings_search_document_idx ON listings USING gin(search_document);
+CREATE INDEX IF NOT EXISTS listings_embedding_idx ON listings USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS listings_facts_idx ON listings USING gin(facts jsonb_path_ops);
 
 CREATE TABLE IF NOT EXISTS raw_sources (

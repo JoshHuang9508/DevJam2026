@@ -20,7 +20,7 @@ export function ListingCardBody({ listing, expanded }: BodyProps) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[11px] text-neutral-500">{listing.view.rankLabel} · {listing.view.locationLabel}</p>
-          <p className="truncate font-semibold text-bark">{listing.title}</p>
+          <p className="truncate font-semibold text-bark">{listing.view.title}</p>
         </div>
         <div className="shrink-0 text-right">
           <StarRating rating={{ starsText: listing.assessment.starsText, fillPercent: listing.assessment.score }} />

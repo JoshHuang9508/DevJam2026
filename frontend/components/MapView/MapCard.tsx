@@ -48,7 +48,7 @@ export function MapCard({ listing, anchor, container, onHover, onViewDetails }: 
       data-testid="map-card"
       role="button"
       tabIndex={0}
-      aria-label={`查看${listing.title}的物件資訊`}
+      aria-label={`查看${listing.view.title}的物件資訊`}
       onMouseEnter={() => onHover(listing.id)}
       onMouseLeave={() => onHover(null)}
       onClick={() => onViewDetails(listing.id)}

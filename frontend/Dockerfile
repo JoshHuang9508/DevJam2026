@@ -13,11 +13,6 @@ ENV NEXT_PUBLIC_MAP_STYLE_URL=$NEXT_PUBLIC_MAP_STYLE_URL
 
 RUN pnpm build
 
-# 資料 pipeline 需要 tsx 與完整 devDeps，所以從 prune 之前的狀態分支出去。
-# cron 跑的是這個 target（見 docker-compose.prod.yml 的 data-refresh 服務）。
-FROM build AS tools
-CMD ["pnpm", "fetch:data"]
-
 FROM build AS pruned
 RUN pnpm prune --prod
 
