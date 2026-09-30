@@ -72,6 +72,9 @@ deploy_and_check() {
   "${compose[@]}" up -d --build --remove-orphans --wait --wait-timeout 240 || return
 
   if "${compose[@]}" config --services | grep -Fxq gateway; then
+    # nginx caches Docker DNS for `web` at start. Recreate gateway after web
+    # changes so the public Cloudflare path does not 502 on a stale IP.
+    "${compose[@]}" up -d --force-recreate --no-deps --wait --wait-timeout 60 gateway || return
     curl --fail --silent --show-error --max-time 30 \
       http://127.0.0.1:3000/healthz >/dev/null || return
     unauthenticated_status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
