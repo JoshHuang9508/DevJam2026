@@ -280,7 +280,7 @@ function rankColor(index: number, total: number): string {
 }
 
 function project(listing: ScoredListing): RankedListing {
-  return { id: listing.id, title: listing.title, url: listing.url, city: listing.city, district: listing.district, address: listing.address, price: listing.price, unitPrice: listing.unitPrice, area: listing.area, layout: listing.layout, floor: listing.floor, totalFloor: listing.totalFloor, age: listing.age, buildingType: listing.buildingType, hasElevator: listing.hasElevator, hasParking: listing.hasParking, score: round(listing.score), semanticScore: round(listing.semanticScore), matchReasons: listing.matchReasons, topDimensions: DIMENSIONS.map((dimension) => ({ dimension, subscore: round(listing.breakdown[dimension].subscore), weight: round(listing.breakdown[dimension].weight) })).sort((a, b) => b.subscore * b.weight - a.subscore * a.weight).slice(0, 3), distToMetro: numberValue(listing.features.distToMetro) ?? null, commuteToCbdMin: numberValue(listing.features.commuteToCbdMin) ?? null, pricePercentile: numberValue(listing.features.pricePercentile) ?? null, dataGaps: listing.dataGaps };
+  return { id: listing.id, title: listing.title, url: listing.url, city: listing.city, district: listing.district, address: listing.address, price: listing.price, unitPrice: listing.unitPrice, area: listing.area, layout: listing.layout, floor: listing.floor, totalFloor: listing.totalFloor, age: listing.age, buildingType: listing.buildingType, hasElevator: listing.hasElevator, hasParking: listing.hasParking, score: round(listing.score), semanticScore: round(listing.semanticScore), matchReasons: listing.matchReasons, topDimensions: DIMENSIONS.map((dimension) => ({ dimension: dimensionLabel(dimension), subscore: round(listing.breakdown[dimension].subscore), weight: round(listing.breakdown[dimension].weight) })).sort((a, b) => b.subscore * b.weight - a.subscore * a.weight).slice(0, 3), distToMetro: numberValue(listing.features.distToMetro) ?? null, commuteToCbdMin: numberValue(listing.features.commuteToCbdMin) ?? null, pricePercentile: numberValue(listing.features.pricePercentile) ?? null, dataGaps: listing.dataGaps.map(gapLabel) };
 }
 
 async function resolvePlace(pool: pg.Pool, place: string, radiusKm?: number) {
@@ -305,4 +305,7 @@ function inverseDistance(value: number | undefined, scale: number): number { ret
 function round(value: number): number { return Math.round(value * 100) / 100; }
 function toSnake(value: string): string { return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`); }
 function dimensionLabel(value: Dimension): string { return { price: "價格", value: "性價比", weather: "氣候", location: "交通", amenities: "機能", space: "空間", quality: "屋況", hazard: "風險" }[value]; }
+function gapLabel(key: string): string {
+  return { distToMetro: "捷運距離", pricePercentile: "同區行情位置", floodIncidents500: "附近淹水紀錄", liquefactionLevel: "土壤液化" }[key] ?? key;
+}
 const REGION_CITIES: Record<string, string[]> = { 北部: ["臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "宜蘭縣"], 中部: ["臺中市", "苗栗縣", "彰化縣", "南投縣", "雲林縣"], 南部: ["高雄市", "臺南市", "嘉義市", "嘉義縣", "屏東縣"], 東部: ["花蓮縣", "臺東縣"], 離島: ["澎湖縣", "金門縣", "連江縣"] };

@@ -2,7 +2,7 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "@earendil-works/pi-ai";
 import { preferencePatchSchema, type PreferencePatch } from "../../domain/preferences/schema.js";
 import { urbanPlanCitySchema } from "../../domain/urban-plan/schema.js";
-import { ListingsUnavailableError, type ListingsProvider } from "../../providers/listings/index.js";
+import { ListingsUnavailableError, type ListingsProvider, type RankedListing } from "../../providers/listings/index.js";
 import { TwinkleUnavailableError, type TwinkleClient } from "../../providers/twinkle/index.js";
 import { WebSearchUnavailableError, type WebSearchProvider } from "../../providers/websearch/index.js";
 import type { UrbanPlanProvider } from "../../providers/urban-plan/types.js";
@@ -157,10 +157,10 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
               ...eventMeta(deps.turnId),
             });
           }
-          const { effectiveProfile: _omit, results: _results, ...forModel } = result;
+          const { effectiveProfile: _omit, results: _results, listings, ...forModel } = result;
           // 0 筆是常見且有意義的結果（條件太嚴），不是錯誤 —— 讓 agent 拿著
           // relaxations 去說明為什麼，而不是丟例外把整輪打斷。
-          return textResult(forModel);
+          return textResult({ ...forModel, listings: listings.map(speakableListing) });
         } catch (error) {
           if (error instanceof ListingsUnavailableError) {
             return textResult({ error: error.message, listings: [], total: 0, relaxations: [] });
@@ -209,6 +209,32 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
  *
  * 沒有金鑰時整組不註冊，模型看不到就不會嘗試呼叫。
  */
+function speakableListing(listing: RankedListing) {
+  return {
+    標題: listing.title,
+    縣市: listing.city,
+    行政區: listing.district,
+    地址: listing.address,
+    價格: listing.price,
+    單價: listing.unitPrice,
+    坪數: listing.area,
+    格局: listing.layout,
+    樓層: listing.floor,
+    總樓層: listing.totalFloor,
+    屋齡: listing.age,
+    建物類型: listing.buildingType,
+    電梯: listing.hasElevator ? "有" : "無",
+    車位: listing.hasParking ? "有" : "無",
+    分數: listing.score,
+    原因: listing.matchReasons,
+    較突出的面向: listing.topDimensions.map((item) => ({ 面向: item.dimension, 分數: item.subscore })),
+    捷運距離公尺: listing.distToMetro,
+    到市中心通勤分鐘: listing.commuteToCbdMin,
+    同區行情位置: listing.pricePercentile,
+    缺少的資料: listing.dataGaps,
+  };
+}
+
 function twinkleTools(
   twinkle: TwinkleClient,
   textResult: (data: unknown) => { content: Array<{ type: "text"; text: string }>; details: unknown },
