@@ -21,7 +21,7 @@ const envSchema = z.object({
   DETAIL_EXTRACTION_BASE_URL: optionalUrl,
   DETAIL_EXTRACTION_API_KEY: optionalString,
   NOMINATIM_URL: z.string().url().default("https://nominatim.openstreetmap.org"),
-  NOMINATIM_USER_AGENT: z.string().min(1).default("anjia-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)"),
+  NOMINATIM_USER_AGENT: z.string().min(1).default("zhuchao-housing-agent/0.1 (+https://github.com/JoshHuang9508/DevJam2026)"),
   NOMINATIM_EMAIL: optionalString,
   GEOCODE_BUDGET: z.coerce.number().int().nonnegative().default(250),
   GEOCODE_MIN_INTERVAL_MS: z.coerce.number().int().min(1000).default(1100),

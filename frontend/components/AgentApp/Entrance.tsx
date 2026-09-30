@@ -35,7 +35,7 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
         <span className="text-[11px] text-neutral-400">{statusLabel}</span>
       </div>
 
-      <h1 className="text-center text-3xl font-bold tracking-tight text-bark">安家</h1>
+      <h1 className="text-center text-3xl font-bold tracking-tight text-bark">築巢</h1>
       <p className="mt-2 text-center text-sm text-neutral-500">
         用一句話描述你想要的生活，agent 會先選出適合的行政區，再從那些區裡挑物件
       </p>

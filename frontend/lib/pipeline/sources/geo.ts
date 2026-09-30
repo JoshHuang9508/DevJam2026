@@ -88,7 +88,7 @@ export async function fetchPoi(cacheDir: string): Promise<PoiIndex> {
       headers: {
         'content-type': 'application/x-www-form-urlencoded',
         // Overpass 明文要求要帶 User-Agent 或 Referer，沒帶會被擋
-        'user-agent': 'anjia-housing-agent/0.1 (data pipeline; contact via github.com/JoshHuang9508/DevJam2026)',
+        'user-agent': 'zhuchao-housing-agent/0.1 (data pipeline; contact via github.com/JoshHuang9508/DevJam2026)',
       },
       body: `data=${encodeURIComponent(OVERPASS_QUERY)}`,
       signal: AbortSignal.timeout(900_000),

@@ -2,14 +2,15 @@
 #
 # 資料抓取 pipeline 的 cron 包裝。**cronjob 目前刻意沒有安裝**，要裝的話見檔案末尾。
 #
-#   /opt/anjia/deploy/refresh-data.sh              # 本期實價登錄 + POI + 捷運 + 災害
-#   /opt/anjia/deploy/refresh-data.sh --seasons=115S2,115S1
+#   ./deploy/refresh-data.sh              # 本期實價登錄 + POI + 捷運 + 災害
+#   ./deploy/refresh-data.sh --seasons=115S2,115S1
 #
 # 做的事：確認 schema 存在 → 跑 pipeline → 記錄結果。
-# 金鑰從 /opt/anjia/.env 讀（compose 會自動載入）。
+# 金鑰從 repo 根目錄 .env 讀（compose 會自動載入）。
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/opt/anjia}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="${APP_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 COMPOSE="docker compose -f ${APP_DIR}/docker-compose.prod.yml"
 LOG_DIR="${APP_DIR}/logs"
 LOG_FILE="${LOG_DIR}/refresh-$(date +%Y%m%d-%H%M%S).log"
@@ -39,7 +40,7 @@ echo "==> $(date -Is) 完成"
 # ---------------------------------------------------------------------------
 # 要啟用定時更新時再執行下面這行（現在刻意沒裝）：
 #
-#   crontab -l 2>/dev/null | { cat; echo "30 4 * * * /opt/anjia/deploy/refresh-data.sh"; } | crontab -
+#   crontab -l 2>/dev/null | { cat; echo "30 4 * * * /path/to/DevJam2026/deploy/refresh-data.sh"; } | crontab -
 #
 # 排在 04:30 是因為實價登錄本期檔每月 1/11/21 更新，凌晨跑不會撞到白天的使用；
 # 每天跑但來源有快取（實價登錄 12 小時、POI 7 天、氣候 30 天），

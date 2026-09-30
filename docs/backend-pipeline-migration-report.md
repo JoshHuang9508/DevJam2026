@@ -64,7 +64,7 @@ backend scheduler
 ### 1. 備份現況
 
 ```bash
-cd /opt/anjia
+cd /path/to/DevJam2026
 git status
 cp .env .env.before-backend-pipeline
 docker compose -f docker-compose.prod.yml ps
@@ -110,7 +110,7 @@ DETAIL_EXTRACTION_MODEL=
 DETAIL_EXTRACTION_API_KEY=
 
 NOMINATIM_URL=https://nominatim.openstreetmap.org
-NOMINATIM_USER_AGENT="anjia-housing-agent/0.1 (你的聯絡網址或信箱)"
+NOMINATIM_USER_AGENT="zhuchao-housing-agent/0.1 (你的聯絡網址或信箱)"
 NOMINATIM_EMAIL=
 GEOCODE_BUDGET=250
 GEOCODE_MIN_INTERVAL_MS=1100

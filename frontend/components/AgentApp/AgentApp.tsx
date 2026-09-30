@@ -256,7 +256,7 @@ export function AgentApp() {
         className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-mist bg-paper md:flex md:w-[380px]`}
       >
         <header className="flex items-center gap-2.5 border-b border-mist px-4 py-3">
-          <h1 className="text-[15px] font-bold tracking-tight text-bark">安家</h1>
+          <h1 className="text-[15px] font-bold tracking-tight text-bark">築巢</h1>
           <span
             className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] leading-none ${
               status?.backendUp ? 'bg-cream text-bark' : 'bg-red-50 text-red-700'
