@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { BrandLockup } from '@/components/BrandLockup'
 import { PLACEHOLDERS, PLACEHOLDER_ROTATE_MS } from '@/lib/client/placeholders'
 
 interface Props {
@@ -33,6 +34,10 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
       <div className="mb-6 flex items-center justify-center gap-2">
         <span className={`h-1.5 w-1.5 rounded-full ${statusOk ? 'bg-sage-dark' : 'bg-mist'}`} />
         <span className="text-[11px] text-neutral-400">{statusLabel}</span>
+      </div>
+
+      <div className="mb-4 flex justify-center">
+        <BrandLockup />
       </div>
 
       <p className="text-center text-sm text-neutral-500">
