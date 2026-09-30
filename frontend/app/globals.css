@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Huninn&display=swap");
 @import "tailwindcss";
 
 /*
@@ -29,6 +30,8 @@
   --color-neutral-800: #4a3428;
   --color-neutral-900: #2e2a27;
   --color-neutral-950: #1c1917;
+
+  --font-brand: "Huninn", "Yuanti TC", "PingFang TC", ui-rounded, sans-serif;
 }
 
 :root { color-scheme: light; }

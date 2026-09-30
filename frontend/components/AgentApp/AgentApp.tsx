@@ -15,6 +15,7 @@ import { parseProfile } from '@/lib/profile/schema'
 import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
 import type { SearchProfile, WeightKey } from '@/lib/types/profile'
+import { BrandLockup } from '@/components/BrandLockup'
 import { Entrance } from '@/components/AgentApp/Entrance'
 import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
 import { ChatIcon, MapIcon } from '@/components/AgentApp/TabIcons'
@@ -211,16 +212,21 @@ export function AgentApp() {
       <div
         inert={started}
         aria-hidden={started}
-        className={`absolute inset-0 z-20 flex items-center justify-center bg-cream transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
+        className={`absolute inset-0 z-20 flex flex-col bg-cream transition-[opacity,transform] duration-[240ms] ease-out motion-reduce:transition-none ${
           started ? 'pointer-events-none -translate-y-4 opacity-0' : 'translate-y-0 opacity-100'
         } ${entranceFaded ? 'invisible' : ''}`}
       >
-        <Entrance
-          onSubmit={(text) => void send(text)}
-          disabled={chatting}
-          statusLabel={runtimeLabel}
-          statusOk={status?.backendUp ?? false}
-        />
+        <div className="px-5 pt-5 sm:px-7 sm:pt-6">
+          <BrandLockup />
+        </div>
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <Entrance
+            onSubmit={(text) => void send(text)}
+            disabled={chatting}
+            statusLabel={runtimeLabel}
+            statusOk={status?.backendUp ?? false}
+          />
+        </div>
       </div>
 
       {/* 行動版分頁列：只在對話已開始、且螢幕小於 md 時顯示，固定在底部（拇指可及）。
@@ -256,7 +262,7 @@ export function AgentApp() {
         className={`${mobileTab === 'chat' ? 'flex' : 'hidden'} w-full shrink-0 flex-col border-r border-mist bg-paper md:flex md:w-[380px]`}
       >
         <header className="flex items-center gap-2.5 border-b border-mist px-4 py-3">
-          <h1 className="text-[15px] font-bold tracking-tight text-bark">築巢</h1>
+          <BrandLockup />
           <span
             className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] leading-none ${
               status?.backendUp ? 'bg-cream text-bark' : 'bg-red-50 text-red-700'
