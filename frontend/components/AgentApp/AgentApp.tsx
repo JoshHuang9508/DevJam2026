@@ -4,23 +4,19 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ListingDeck } from '@/components/ListingList/ListingDeck'
 import { ListingDetail } from '@/components/ListingDetail/ListingDetail'
 import { MapView } from '@/components/MapView/MapView'
-import { WeightPopover } from '@/components/WeightPanel/WeightPopover'
-import { useDebouncedEffect } from '@/hooks/useDebouncedEffect'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useSearchState } from '@/hooks/useSearchState'
-import { weightDiff } from '@/lib/backend/profile-bridge'
 import { PLACEHOLDERS } from '@/lib/client/placeholders'
 import { parseSseChunk } from '@/lib/client/sseClient'
 import { parseProfile } from '@/lib/profile/schema'
 import type { ChatMessage } from '@/lib/types/chat'
 import type { RankResult, ScoredListing } from '@/lib/types/listing'
-import type { SearchProfile, WeightKey } from '@/lib/types/profile'
+import type { SearchProfile } from '@/lib/types/profile'
 import { BrandLockup } from '@/components/BrandLockup'
 import { Entrance } from '@/components/AgentApp/Entrance'
 import { MarkdownMessage } from '@/components/AgentApp/MarkdownMessage'
 import { ChatIcon, MapIcon } from '@/components/AgentApp/TabIcons'
 
-const RANK_DEBOUNCE_MS = 200
 const SESSION_KEY = 'selector.sessionId'
 // 與入口淡出的 transition duration-[240ms] 對齊：opacity 不會往子節點的 computed style
 // 傳遞（不像 visibility 會繼承），所以只淡出外層是不夠的——Entrance 自己的 data-testid
@@ -39,13 +35,11 @@ export function AgentApp() {
   const s = useSearchState()
   const [status, setStatus] = useState<Status | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [highlighted, setHighlighted] = useState<Partial<Record<WeightKey, { from: number; to: number }>>>({})
   const [input, setInput] = useState('')
   const [chatting, setChatting] = useState(false)
   // hoveredId（滑鼠移開就清）與 selectedId（點選後常駐，直到 ESC / 點空白 / 換結果）分開放，
   // 共用一個的話點選後滑鼠一移開卡片就消失，「常駐」就失效了。
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [panelOpen, setPanelOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   // md（768px）以下改單欄 + 分頁；桌面版忽略這個狀態，三欄照常並排。
   // 物件列表在行動版不是獨立分頁，而是併進地圖下半部的 ListingDeck。
@@ -55,8 +49,6 @@ export function AgentApp() {
 
   const profileRef = useRef<SearchProfile>(s.profile)
   profileRef.current = s.profile
-  // Suppresses the debounced /api/rank right after a chat turn already set results.
-  const skipNextRank = useRef(false)
   const chatBottom = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -98,15 +90,6 @@ export function AgentApp() {
     return () => window.clearTimeout(timer)
   }, [messages.length])
 
-  // Slider path: pure scoring engine, no backend and no model call.
-  // 對話開始前不排序 —— 掛載時就打一次 /api/rank 會在入口後面堆出一份沒人要求的結果，
-  // 使用者關掉入口才發現列表已經有東西。
-  useDebouncedEffect(() => {
-    if (messages.length === 0) return
-    if (skipNextRank.current) { skipNextRank.current = false; return }
-    void s.rank(s.profile)
-  }, [s.profile], RANK_DEBOUNCE_MS)
-
   const send = useCallback(async (text: string) => {
     const message = text.trim()
     if (!message || chatting) return
@@ -114,7 +97,6 @@ export function AgentApp() {
     const turn = `${Date.now()}`
     setInput('')
     setChatting(true)
-    setHighlighted({})
     setMessages((prev) => [
       ...prev,
       { id: `u-${turn}`, role: 'user', content: message },
@@ -158,9 +140,6 @@ export function AgentApp() {
               break
             case 'profile': {
               const next = parseProfile(data)
-              setHighlighted(weightDiff(profileRef.current, next))
-              // The server already ranked with this profile; don't re-rank on echo.
-              skipNextRank.current = true
               s.setProfile(next)
               break
             }
@@ -189,7 +168,6 @@ export function AgentApp() {
           ? { ...m, streaming: false, content: m.content || '（這一輪沒有產生回覆）' }
           : m))
       setChatting(false)
-      window.setTimeout(() => setHighlighted({}), 4000)
     }
   }, [chatting, s])
 
@@ -277,7 +255,7 @@ export function AgentApp() {
             {messages.length === 0 && (
               <div className="space-y-2">
                 <p className="text-[13px] leading-relaxed text-neutral-500">
-                  用一句話描述你想要的生活。agent 會先選出適合的行政區，再從那些區裡挑物件。
+                  用一句話描述你想要的生活。AI 會搜尋物件資料，並依所有可用細節找出適合的選擇。
                 </p>
                 {PLACEHOLDERS.map((example) => (
                   <button
@@ -303,17 +281,6 @@ export function AgentApp() {
               </div>
             ))}
             <div ref={chatBottom} />
-          </div>
-
-          {/* 浮層向上開（bottom-full），要放在輸入表單上方——放下方會被視窗底部裁掉 */}
-          <div className="shrink-0 border-neutral-200 px-3 pt-2">
-            <WeightPopover
-              profile={s.profile}
-              onChange={s.setProfile}
-              highlighted={highlighted}
-              open={panelOpen}
-              onOpenChange={setPanelOpen}
-            />
           </div>
 
           <form
@@ -357,13 +324,9 @@ export function AgentApp() {
       >
 
         {/* 三個訊息都沒有時整條不掛載 —— 空的 div 仍有 py-2 與底線，會在地圖上方留一條白帶 */}
-        {(s.loading || s.error !== null || (status !== null && !status.listingsDb)) && (
+        {status !== null && !status.listingsDb && (
           <div className="flex shrink-0 items-center gap-3 border-b border-mist bg-paper px-4 py-2 text-xs">
-            {s.loading && <span className="text-neutral-400">排序中…</span>}
-            {s.error && <span className="text-red-600">{s.error}</span>}
-            {status && !status.listingsDb && (
-              <span className="text-amber-700">物件資料庫尚未完成初始化</span>
-            )}
+            <span className="text-amber-700">物件資料庫尚未完成初始化</span>
           </div>
         )}
 

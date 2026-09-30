@@ -44,6 +44,11 @@ export function ListingDetail({ listing, open, onToggle }: Props) {
       {listing ? (
         <>
           <div key={listing.id} className="min-h-0 flex-1 overflow-y-auto px-3 pb-3 pt-1">
+            <div className="mb-4">
+              <p className="text-[11px] text-neutral-500">本次需求匹配</p>
+              <p className="mt-0.5 text-lg font-semibold text-bark">{listing.assessment.starsText} / 5 星</p>
+              <p className="mt-1 text-xs leading-relaxed text-neutral-600">{listing.assessment.summary}</p>
+            </div>
             <dl className="grid grid-cols-2 gap-x-3 gap-y-3">
               {listing.view.detailFacts.map((fact) => <Detail key={fact.key} label={fact.label} value={fact.value} wide={fact.wide} />)}
             </dl>

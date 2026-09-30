@@ -13,8 +13,9 @@ PostgreSQL 是物件資料的唯一儲存與查詢來源。原始來源抓取、
 
 1. 價格、縣市、房數、坪數、屋齡、電梯等明確條件使用 SQL 篩選。
 2. 採光、安靜、生活感受、格局偏好等自然語言使用向量相似度召回。
-3. 後端以結構化分數和語意分數重排。
-4. Agent 只取得排名結果與證據，再產生回答。
+3. AI 同時讀取候選物件的全部 facts，依本次需求建立共同標準並重排。
+4. AI 產生本次需求的整體匹配分數、信心度、摘要、優點、取捨與缺少資訊。
+5. Agent 只取得排名結果與證據，再產生回答。
 
 ## 原始資料管線
 
@@ -121,49 +122,42 @@ PostgreSQL 是物件資料的唯一儲存與查詢來源。原始來源抓取、
 {
   "profile": {
     "mode": "sale",
-    "weights": {
-      "price": 70,
-      "value": 60,
-      "weather": 30,
-      "location": 80,
-      "amenities": 50,
-      "space": 70,
-      "quality": 80,
-      "hazard": 60
-    },
     "hard": {
       "cities": ["臺北市"],
       "budgetMax": 2500,
       "minRooms": 3,
       "needElevator": true
-    }
+    },
+    "notes": []
   },
   "semanticQuery": "希望高樓層、採光好、安靜，客廳不要太暗",
-  "limit": 100
+  "limit": 20
 }
 ```
 
 ## 搜尋結果
 
-每筆結果包含計算資料與可直接顯示的 `view`：
+每筆結果只有核心識別、來源、位置、動態 facts、本次評估與可直接顯示的 `view`：
 
 | 欄位 | 用途 |
 | --- | --- |
-| `score` | 混合排序總分，範圍 0 到 1 |
-| `semanticScore` | 向量相似度 |
-| `breakdown` | 價格、性價比、氣候、交通、機能、空間、屋況、風險分項 |
-| `matchReasons` | 可向使用者說明的匹配理由 |
-| `details` | 爬蟲擷取的細節與證據 |
-| `facts` | 後端合併完成的動態事實與來源資訊 |
-| `dataGaps` | 缺少的資料 |
-| `view.score` | 已完成的星等文字與填滿比例 |
-| `view.scores` | 已排序並格式化的分項評分 |
+| `id`、`title` | 顯示識別與名稱 |
+| `source` | 來源 id、名稱與原始網址 |
+| `location` | 地址與座標 |
+| `facts` | 後端合併完成的所有動態事實、來源與證據 |
+| `assessment.score` | AI 對本次需求的整體匹配分數，0 到 100 |
+| `assessment.starsText` | 後端換算完成的 0 到 5 星文字 |
+| `assessment.confidence` | 這次評估的資料信心度，0 到 1 |
+| `assessment.summary` | 一句綜合說明 |
+| `assessment.strengths`、`tradeoffs` | 有 facts 支持的優點與取捨 |
+| `assessment.matchedFactKeys` | 評估實際引用的 fact key |
+| `assessment.missingInformation` | 若要更可靠評估仍缺少的資訊 |
 | `view.cardFacts` | 地圖與清單卡片可直接渲染的 label/value |
 | `view.detailFacts` | 右欄可直接渲染的所有細項 |
 | `view.marker` | 地圖 marker 的文字、顏色、尺寸與層級 |
 | `view.action` | 查看原始物件的按鈕文字與網址 |
 
-有語意文字時，總分目前為結構化分數 60% 加語意分數 40%；沒有語意文字時只使用結構化分數。
+`assessment` 不寫回物件資料庫，因為同一物件會隨使用者需求、候選集合與當次可用 facts 得到不同結果。固定八項分數與人工權重已退出主要搜尋流程。未設定 AI 評估金鑰或評估服務暫時失敗時，後端以向量相似度產生降級分數，並降低信心度。
 
 ## 資料流
 
@@ -189,9 +183,10 @@ flowchart LR
   J --> K
   K --> L[SQL hard filters]
   K --> M[Vector retrieval]
-  L --> N[Hybrid rerank]
+  L --> N[候選集合]
   M --> N
-  N --> O[排名、理由、證據]
+  N --> AI[AI 讀取全部 facts 並建立本次評估標準]
+  AI --> O[整體分數、信心度、理由、證據]
   O --> P[Agent 回覆]
   O --> RENDER[後端建立 view 展示模型]
   RENDER --> Q[前端直接渲染]

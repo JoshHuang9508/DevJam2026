@@ -5,6 +5,7 @@ import { buildApp } from "./app.js";
 import type { AppConfig } from "./config/env.js";
 import { InMemorySessionRepository, PostgresSessionRepository } from "./database/session-repository.js";
 import { createEmbeddingProvider } from "./embeddings/provider.js";
+import { createListingEvaluator } from "./assessment/evaluator.js";
 import { createDetailExtractor } from "./details/extractor.js";
 import { createListingIngestion } from "./database/listing-ingestion.js";
 import { createGeocodingService } from "./geocoding/service.js";
@@ -39,11 +40,19 @@ export async function createApplication(config: AppConfig) {
     model: config.EMBEDDING_MODEL,
     dimensions: config.EMBEDDING_DIMENSIONS,
   });
-  const listings = createListingsProvider({ databaseUrl: config.DATABASE_URL, embeddings });
   const requestedDetailMode = config.DETAIL_EXTRACTION_MODE;
   const detailMode = requestedDetailMode === "auto" ? config.DETAIL_EXTRACTION_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : "off" : requestedDetailMode;
   const detailApiKey = config.DETAIL_EXTRACTION_API_KEY ?? (detailMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
-  const details = createDetailExtractor({ mode: detailMode, model: config.DETAIL_EXTRACTION_MODEL ?? config.PI_MODEL, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
+  const detailModel = config.DETAIL_EXTRACTION_MODEL ?? (detailMode === "google" && config.PI_PROVIDER !== "google" ? "gemini-2.5-flash" : config.PI_MODEL);
+  const requestedAssessmentMode = config.ASSESSMENT_MODE;
+  const assessmentMode = requestedAssessmentMode === "auto" ? config.ASSESSMENT_API_KEY ? "openai" : config.GEMINI_API_KEY ? "google" : config.CUSTOM_OPENAI_API_KEY ? "openai" : "off" : requestedAssessmentMode;
+  const assessmentApiKey = config.ASSESSMENT_API_KEY ?? (assessmentMode === "google" ? config.GEMINI_API_KEY : config.CUSTOM_OPENAI_API_KEY);
+  const assessmentUsesCustomOpenAi = assessmentMode === "openai" && !config.ASSESSMENT_API_KEY && Boolean(config.CUSTOM_OPENAI_API_KEY);
+  const assessmentModel = config.ASSESSMENT_MODEL ?? (assessmentMode === "google" && config.PI_PROVIDER !== "google" ? "gemini-2.5-flash" : assessmentUsesCustomOpenAi || assessmentMode === "google" ? config.PI_MODEL : "gpt-4o-mini");
+  const assessmentBaseUrl = config.ASSESSMENT_BASE_URL ?? (assessmentUsesCustomOpenAi ? config.CUSTOM_OPENAI_BASE_URL : "https://api.openai.com/v1");
+  const evaluator = createListingEvaluator({ mode: assessmentMode, model: assessmentModel, baseUrl: assessmentBaseUrl, ...(assessmentApiKey ? { apiKey: assessmentApiKey } : {}) });
+  const listings = createListingsProvider({ databaseUrl: config.DATABASE_URL, embeddings, evaluator });
+  const details = createDetailExtractor({ mode: detailMode, model: detailModel, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
   const ingestion = createListingIngestion({ databaseUrl: config.DATABASE_URL, embeddings, details });
   const enrichment = createEnrichmentService({ databaseUrl: config.DATABASE_URL, embeddings, details });
   const geocoding = createGeocodingService({
@@ -54,7 +63,7 @@ export async function createApplication(config: AppConfig) {
     budget: config.GEOCODE_BUDGET,
     minIntervalMs: config.GEOCODE_MIN_INTERVAL_MS,
   });
-  const normalizer = createRawNormalizer({ mode: detailMode, model: config.DETAIL_EXTRACTION_MODEL ?? config.PI_MODEL, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
+  const normalizer = createRawNormalizer({ mode: detailMode, model: detailModel, baseUrl: config.DETAIL_EXTRACTION_BASE_URL ?? config.CUSTOM_OPENAI_BASE_URL, ...(detailApiKey ? { apiKey: detailApiKey } : {}) });
   const pipeline = createPipelineService({ databaseUrl: config.DATABASE_URL, normalizer, geocoding, ingestion, enrichment, fetchTimeoutMs: config.PIPELINE_FETCH_TIMEOUT_MS });
   pipeline.start(config.PIPELINE_POLL_INTERVAL_MS);
   // 沒有金鑰就是 null，domain-tools 會整組跳過不註冊

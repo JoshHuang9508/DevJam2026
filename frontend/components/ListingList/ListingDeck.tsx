@@ -75,7 +75,7 @@ export function ListingDeck({ results, selectedId, onSelect }: Props) {
   if (results.length === 0) {
     return (
       <div className="flex shrink-0 items-center justify-center border-t border-neutral-200 bg-white px-4 py-6 text-center text-xs text-neutral-500">
-        還沒有結果。描述一下你想要的生活，或直接調整權重。
+        還沒有結果。描述一下你想要的生活與找房條件。
       </div>
     )
   }

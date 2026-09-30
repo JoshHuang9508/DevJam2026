@@ -1,5 +1,5 @@
 import type { ScoredListing } from '@/lib/types/listing'
-import { BreakdownBars } from './BreakdownBars'
+import { StarRating } from './StarRating'
 
 interface Props {
   listing: ScoredListing
@@ -23,18 +23,11 @@ export function ListingCardBody({ listing, expanded }: BodyProps) {
           <p className="truncate font-semibold text-bark">{listing.title}</p>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-xl font-bold leading-none tabular-nums text-bark">
-            {listing.view.score.starsText} 星
-          </p>
+          <StarRating rating={{ starsText: listing.assessment.starsText, fillPercent: listing.assessment.score }} />
         </div>
       </div>
 
-      <p className="mt-1.5 text-[15px] font-semibold tabular-nums text-bark">
-        {listing.view.priceText}
-      </p>
-      <p className="mt-1 truncate text-[11px] text-neutral-500">
-        {listing.view.summaryText}
-      </p>
+      <p className="mt-1.5 text-[11px] leading-relaxed text-neutral-600">{listing.assessment.summary}</p>
 
       {expanded && (
         <>
@@ -42,12 +35,8 @@ export function ListingCardBody({ listing, expanded }: BodyProps) {
             {listing.view.cardFacts.map((fact) => <Stat key={fact.key} label={fact.label} value={fact.value} />)}
           </dl>
 
-          <div className="mt-2.5 space-y-1">
-            <BreakdownBars listing={listing} />
-          </div>
-
-          {listing.view.strengths.map((text) => <p key={text} className="mt-2 text-[11px] leading-relaxed text-sage-dark">＋ {text}</p>)}
-          {listing.view.tradeoffs.map((text) => <p key={text} className="text-[11px] leading-relaxed text-bark">− {text}</p>)}
+          {listing.assessment.strengths.map((text) => <p key={text} className="mt-2 text-[11px] leading-relaxed text-sage-dark">＋ {text}</p>)}
+          {listing.assessment.tradeoffs.map((text) => <p key={text} className="text-[11px] leading-relaxed text-bark">− {text}</p>)}
         </>
       )}
     </>

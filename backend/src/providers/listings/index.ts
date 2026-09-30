@@ -3,41 +3,82 @@ import type { PreferenceState } from "../../domain/preferences/schema.js";
 import type { EmbeddingProvider } from "../../embeddings/provider.js";
 import { vectorLiteral } from "../../embeddings/provider.js";
 import type { ListingFact } from "../../database/listing-ingestion.js";
+import type { AssessmentCandidate, CandidateAssessment, ListingEvaluator } from "../../assessment/evaluator.js";
 
 const { Pool } = pg;
-const DIMENSIONS = ["price", "value", "weather", "location", "amenities", "space", "quality", "hazard"] as const;
-type Dimension = typeof DIMENSIONS[number];
 type Mode = "sale" | "rent";
 
+export interface SearchProfile {
+  mode: Mode;
+  hard: Record<string, unknown>;
+  notes?: string[];
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  source: { id: string; name: string; url: string };
+  location: { address: string; lat: number; lng: number };
+  facts: ListingFact[];
+  assessment: CandidateAssessment;
+  view: ListingView;
+}
+
+export interface ListingView {
+  rankLabel: string;
+  locationLabel: string;
+  cardFacts: Array<{ key: string; label: string; value: string; wide: boolean }>;
+  detailFacts: Array<{ key: string; label: string; value: string; wide: boolean; group: string }>;
+  marker: { label: string; title: string; color: string; size: number; zIndex: number };
+  action: { label: string; url: string } | null;
+}
+
 export interface RankedListing {
-  id: string; title: string; url: string; city: string; district: string; address: string;
-  price: number; unitPrice: number; area: number; layout: string; floor: number; totalFloor: number;
-  age: number; buildingType: string; hasElevator: boolean; hasParking: boolean; score: number;
-  semanticScore: number; topDimensions: { dimension: string; subscore: number; weight: number }[];
-  matchReasons: string[]; distToMetro: number | null; commuteToCbdMin: number | null;
-  pricePercentile: number | null; dataGaps: string[];
+  id: string;
+  title: string;
+  source: string;
+  url: string;
+  address: string;
+  lat: number;
+  lng: number;
+  score: number;
+  confidence: number;
+  summary: string;
+  strengths: string[];
+  tradeoffs: string[];
+  missingInformation: string[];
+  facts: Array<{ label: string; value: string; evidence?: string }>;
 }
 
 export interface RankListingsResult {
-  mode: Mode; total: number; relaxations: string[]; listings: RankedListing[]; results: ScoredListing[];
+  mode: Mode;
+  total: number;
+  relaxations: string[];
+  criteria: Array<{ description: string; importance: "required" | "high" | "medium" | "low" }>;
+  listings: RankedListing[];
+  results: SearchResult[];
   resolvedPlace?: { lat: number; lng: number; radiusKm: number; label: string } | null;
-  unresolvedPlace?: string; effectiveProfile?: unknown;
+  unresolvedPlace?: string;
+  effectiveProfile?: unknown;
 }
 
 export interface RankListingsInput {
-  sessionId: string; preferences: PreferenceState; semanticQuery?: string; mode?: Mode; limit?: number;
-  near?: { place: string; radiusKm?: number }; signal?: AbortSignal;
+  sessionId: string;
+  preferences: PreferenceState;
+  semanticQuery?: string;
+  mode?: Mode;
+  limit?: number;
+  near?: { place: string; radiusKm?: number };
+  signal?: AbortSignal;
 }
 
 export interface DatasetSummary {
-  mode: Mode; total: number; cities: string[];
+  mode: Mode;
+  total: number;
+  cities: string[];
   districts: { city: string; district: string; count: number; medianPrice: number; medianArea: number }[];
-  priceUnit: string; source: string;
-}
-
-export interface SearchProfile {
-  mode: Mode; weights: Record<Dimension, number>; hard: Record<string, unknown>;
-  soft?: Record<string, unknown>; notes?: string[];
+  priceUnit: string;
+  source: string;
 }
 
 export interface ListingsProvider {
@@ -51,90 +92,47 @@ export interface ListingsProvider {
   close(): Promise<void>;
 }
 
-export interface ScoredListing {
-  id: string; source: string; sourceId: string; mode: Mode; url: string; title: string; scrapedAt: number;
-  city: string; district: string; address: string; lat: number; lng: number; price: number; unitPrice: number;
-  area: number; layout: string; rooms: number; floor: number; totalFloor: number; age: number;
-  buildingType: string; hasElevator: boolean; hasParking: boolean;
-  features: Record<string, number | string | boolean | null>; details: Record<string, unknown>;
-  facts: ListingFact[];
-  score: number; semanticScore: number;
-  breakdown: Record<Dimension, { subscore: number; weight: number; contribution: number }>;
-  matchReasons: string[]; dataGaps: string[];
-  view: ListingView;
-}
-
-export interface ListingView {
-  rankLabel: string;
-  locationLabel: string;
-  priceText: string;
-  summaryText: string;
-  score: { label: string; starsText: string; fillPercent: number };
-  scores: Array<{ key: string; label: string; starsText: string; fillPercent: number; barPercent: number; pointsText: string; lead: boolean }>;
-  cardFacts: Array<{ key: string; label: string; value: string; wide: boolean }>;
-  detailFacts: Array<{ key: string; label: string; value: string; wide: boolean; group: string }>;
-  strengths: string[];
-  tradeoffs: string[];
-  marker: { label: string; title: string; color: string; size: number; zIndex: number };
-  action: { label: string; url: string } | null;
-}
-
 interface ListingRow {
-  id: string; source: string; source_id: string; mode: Mode; url: string; title: string; scraped_at: Date;
-  city: string; district: string; address: string; lat: number; lng: number; price: number; unit_price: number;
-  area: number; layout: string; rooms: number; floor: number; total_floor: number; age: number;
-  building_type: string; has_elevator: boolean; has_parking: boolean; details: Record<string, unknown>;
-  features: Record<string, number | string | boolean | null>; facts: ListingFact[]; semantic_score: number;
+  id: string;
+  source: string;
+  source_id: string;
+  mode: Mode;
+  url: string;
+  title: string;
+  city: string;
+  district: string;
+  address: string;
+  lat: number;
+  lng: number;
+  price: number;
+  unit_price: number;
+  area: number;
+  layout: string;
+  rooms: number;
+  floor: number;
+  total_floor: number;
+  age: number;
+  building_type: string;
+  has_elevator: boolean;
+  has_parking: boolean;
+  details: Record<string, unknown>;
+  features: Record<string, number | string | boolean | null>;
+  facts: ListingFact[];
+  semantic_score: number;
 }
 
 export class ListingsUnavailableError extends Error {}
 
-export function createListingsProvider(options: { databaseUrl: string; embeddings: EmbeddingProvider }): ListingsProvider {
+export function createListingsProvider(options: { databaseUrl: string; embeddings: EmbeddingProvider; evaluator: ListingEvaluator }): ListingsProvider {
   const pool = new Pool({ connectionString: options.databaseUrl });
 
-  const search = async (profile: SearchProfile, semanticQuery = "", limit = 100, signal?: AbortSignal): Promise<RankListingsResult> => {
+  const search = async (profile: SearchProfile, semanticQuery = "", limit = 20, signal?: AbortSignal): Promise<RankListingsResult> => {
     try {
-      const vector = semanticQuery.trim() ? await options.embeddings.embed(semanticQuery, signal) : null;
+      const query = semanticQuery.trim() || profile.notes?.join(" ").trim() || "根據所有已知資料找出最適合的物件";
+      const vector = query ? await options.embeddings.embed(query, signal) : null;
       const values: unknown[] = [profile.mode];
       const where = ["mode = $1"];
-      const hard = profile.hard;
-      const selectedCities = stringArray(hard.cities);
-      const regionCities = stringArray(hard.regions).flatMap((region) => REGION_CITIES[region] ?? []);
-      const cityFilter = selectedCities.length && regionCities.length ? selectedCities.filter((city) => regionCities.includes(city)) : selectedCities.length ? selectedCities : regionCities;
-      addArrayFilter(where, values, "city", cityFilter, false);
-      addArrayFilter(where, values, "district", stringArray(hard.districts), false);
-      addArrayFilter(where, values, "city", stringArray(hard.excludedCities), true);
-      addArrayFilter(where, values, "district", stringArray(hard.excludedDistricts), true);
-      addCoreNumberFilter(where, values, "price", ">=", numberValue(hard.budgetMin), "price");
-      addCoreNumberFilter(where, values, "price", "<=", numberValue(hard.budgetMax), "price");
-      addCoreNumberFilter(where, values, "area", ">=", numberValue(hard.minArea), "area");
-      addCoreNumberFilter(where, values, "rooms", ">=", numberValue(hard.minRooms), "rooms");
-      addCoreNumberFilter(where, values, "age", "<=", numberValue(hard.maxAge), "age");
-      addBooleanFilter(where, values, "has_elevator", hard.needElevator);
-      addBooleanFilter(where, values, "has_parking", hard.needParking);
-      const buildingTypes = stringArray(hard.buildingTypes);
-      if (buildingTypes.length) {
-        values.push(buildingTypes.map((value) => `%${value}%`));
-        where.push(`building_type LIKE ANY($${values.length}::text[])`);
-      }
-      const maxMetro = numberValue(hard.maxDistToMetro);
-      if (maxMetro !== undefined) {
-        values.push(maxMetro);
-        where.push(`(features->>'distToMetro')::double precision <= $${values.length}`);
-      }
-      const maxCommute = numberValue(hard.maxCommuteMinutes);
-      if (maxCommute !== undefined) {
-        values.push(maxCommute);
-        where.push(`(features->>'commuteToCbdMin')::double precision <= $${values.length}`);
-      }
-      const near = parseNear(hard.near);
-      if (near) {
-        values.push(near.lat, near.lng, near.radiusKm);
-        const lat = `$${values.length - 2}`;
-        const lng = `$${values.length - 1}`;
-        const radius = `$${values.length}`;
-        where.push(`6371 * acos(least(1, cos(radians(${lat}::double precision)) * cos(radians(lat)) * cos(radians(lng) - radians(${lng}::double precision)) + sin(radians(${lat}::double precision)) * sin(radians(lat)))) <= ${radius}::double precision`);
-      }
+      applyHardFilters(where, values, profile.hard);
       let semanticSelect = "0.5::double precision AS semantic_score";
       let order = "indexed_at DESC";
       if (vector) {
@@ -144,12 +142,29 @@ export function createListingsProvider(options: { databaseUrl: string; embedding
         order = `embedding <=> ${ref}`;
         where.push("embedding IS NOT NULL");
       }
-      values.push(Math.min(Math.max(limit * 6, 100), 600));
-      const result = await pool.query<ListingRow>({ text: `SELECT *, ${semanticSelect} FROM listings WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values, ...(signal ? { signal } : {}) });
-      const scored = scoreRows(result.rows, profile, Boolean(vector)).slice(0, Math.min(Math.max(limit, 1), 500));
-      return { mode: profile.mode, total: scored.length, relaxations: scored.length ? [] : ["硬條件沒有符合的物件，地區與必要條件未自動放寬。"], listings: scored.slice(0, 20).map(project), results: scored, effectiveProfile: profile };
+      const requested = Math.min(Math.max(limit, 1), 30);
+      values.push(Math.min(Math.max(requested * 2, 20), 40));
+      const rows = (await pool.query<ListingRow>({ text: `SELECT *, ${semanticSelect} FROM listings WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT $${values.length}`, values, ...(signal ? { signal } : {}) })).rows;
+      if (rows.length === 0) return { mode: profile.mode, total: 0, relaxations: ["必要條件沒有符合的物件，條件未自動放寬。"], criteria: [], listings: [], results: [], effectiveProfile: profile };
+      const candidates = rows.map(toAssessmentCandidate);
+      const evaluated = await options.evaluator.evaluate(query, candidates, signal);
+      const ordered = rows
+        .map((row) => ({ row, assessment: evaluated.assessments.get(row.id) ?? semanticAssessment(row) }))
+        .sort((a, b) => b.assessment.score - a.assessment.score || b.assessment.confidence - a.assessment.confidence)
+        .slice(0, requested);
+      const results = ordered.map((item, index, all) => toSearchResult(item.row, item.assessment, index, all.length));
+      return {
+        mode: profile.mode,
+        total: results.length,
+        relaxations: results.length ? [] : ["必要條件沒有符合的物件，條件未自動放寬。"],
+        criteria: evaluated.criteria,
+        listings: results.slice(0, 20).map(project),
+        results,
+        effectiveProfile: profile,
+      };
     } catch (error) {
-      throw new ListingsUnavailableError(error instanceof Error ? error.message : String(error));
+      if (isMissingRelation(error)) throw new ListingsUnavailableError("物件資料庫尚未建立，請先執行資料管線");
+      throw error;
     }
   };
 
@@ -160,27 +175,26 @@ export function createListingsProvider(options: { databaseUrl: string; embedding
     },
     async count() { return Number((await pool.query<{ count: string }>("SELECT count(*)::text AS count FROM listings")).rows[0]?.count ?? 0); },
     async rank(input) {
-      const mode = input.mode ?? input.preferences.hardConstraints.mode ?? "sale";
+      const mode = input.mode ?? input.preferences.hardConstraints.mode ?? "rent";
       const profile = profileFromPreferences(input.preferences, mode);
-      const modelLimit = Math.min(Math.max(input.limit ?? 8, 1), 20);
-      if (input.near) {
+      let resolvedPlace: RankListingsResult["resolvedPlace"];
+      if (input.near?.place) {
         const resolved = await resolvePlace(pool, input.near.place, input.near.radiusKm);
-        if (!resolved) return { mode, total: 0, relaxations: [], listings: [], results: [], unresolvedPlace: input.near.place, effectiveProfile: profile };
+        if (!resolved) return { mode, total: 0, relaxations: [], criteria: [], listings: [], results: [], unresolvedPlace: input.near.place, effectiveProfile: profile };
         profile.hard.near = resolved;
-        const result = await search(profile, input.semanticQuery, 100, input.signal);
-        return { ...result, listings: result.listings.slice(0, modelLimit), resolvedPlace: resolved };
+        resolvedPlace = resolved;
       }
-      const result = await search(profile, input.semanticQuery, 100, input.signal);
-      return { ...result, listings: result.listings.slice(0, modelLimit) };
+      const result = await search(profile, input.semanticQuery ?? "", input.limit ?? 20, input.signal);
+      return { ...result, ...(resolvedPlace ? { resolvedPlace } : {}) };
     },
-    search,
     async describe(mode, signal) {
       const result = await pool.query<{ city: string; district: string; count: number; median_price: number; median_area: number }>({ text: "SELECT city, district, count(*)::int AS count, percentile_cont(0.5) WITHIN GROUP (ORDER BY price)::float AS median_price, percentile_cont(0.5) WITHIN GROUP (ORDER BY area)::float AS median_area FROM listings WHERE mode = $1 GROUP BY city, district ORDER BY count(*) DESC", values: [mode], ...(signal ? { signal } : {}) });
-      return { mode, total: result.rows.reduce((sum, row) => sum + row.count, 0), cities: [...new Set(result.rows.map((row) => row.city))], districts: result.rows.map((row) => ({ city: row.city, district: row.district, count: row.count, medianPrice: row.median_price, medianArea: row.median_area })), priceUnit: mode === "sale" ? "萬元（總價）" : "元／月", source: "物件向量資料庫" };
+      return { mode, total: result.rows.reduce((sum, row) => sum + row.count, 0), cities: [...new Set(result.rows.map((row) => row.city))], districts: result.rows.map((row) => ({ city: row.city, district: row.district, count: row.count, medianPrice: Number(row.median_price), medianArea: Number(row.median_area) })), priceUnit: mode === "rent" ? "元/月" : "萬元", source: "PostgreSQL listings" };
     },
     async rows(mode) { return (await pool.query("SELECT city, district, price, area FROM listings WHERE mode = $1", [mode])).rows; },
     async districts() { return (await pool.query("SELECT city, district AS name, avg(lat)::float AS lat, avg(lng)::float AS lng, count(*)::int AS listing_count FROM listings GROUP BY city, district")).rows; },
     async close() { await pool.end(); },
+    search,
   };
 }
 
@@ -188,99 +202,136 @@ function profileFromPreferences(preferences: PreferenceState, mode: Mode): Searc
   const hard = preferences.hardConstraints;
   return {
     mode,
-    weights: { price: (preferences.listingPreferences.priceWeight ?? preferences.softPreferences.housing.weight) * 100, value: (preferences.listingPreferences.valueWeight ?? preferences.softPreferences.housing.preferLowerRent) * 100, weather: preferences.softPreferences.climate.weight * 100, location: preferences.softPreferences.transportation.weight * 100, amenities: preferences.softPreferences.amenities.weight * 100, space: (preferences.listingPreferences.spaceWeight ?? 0.5) * 100, quality: (preferences.listingPreferences.qualityWeight ?? 0.5) * 100, hazard: preferences.listingPreferences.hazardWeight * 100 },
-    hard: { regions: hard.regions, cities: hard.cities, districts: hard.districts, excludedCities: hard.excludedCities, excludedDistricts: hard.excludedDistricts, budgetMin: mode === "sale" ? hard.minTotalPriceWan : hard.minMonthlyRent, budgetMax: mode === "sale" ? hard.maxTotalPriceWan : hard.maxMonthlyRent, minArea: hard.minArea, minRooms: hard.minRooms, maxAge: hard.maxAge, buildingTypes: hard.buildingTypes, needElevator: hard.needElevator, needParking: hard.needParking, maxDistToMetro: hard.maxWalkMinutesToMetro === undefined ? undefined : hard.maxWalkMinutesToMetro * 80, maxCommuteMinutes: hard.maxCommuteMinutes },
+    hard: {
+      regions: hard.regions,
+      cities: hard.cities,
+      districts: hard.districts,
+      excludedCities: hard.excludedCities,
+      excludedDistricts: hard.excludedDistricts,
+      budgetMin: mode === "sale" ? hard.minTotalPriceWan : hard.minMonthlyRent,
+      budgetMax: mode === "sale" ? hard.maxTotalPriceWan : hard.maxMonthlyRent,
+      minArea: hard.minArea,
+      minRooms: hard.minRooms,
+      maxAge: hard.maxAge,
+      buildingTypes: hard.buildingTypes,
+      needElevator: hard.needElevator,
+      needParking: hard.needParking,
+      maxDistToMetro: hard.maxWalkMinutesToMetro === undefined ? undefined : hard.maxWalkMinutesToMetro * 80,
+      maxCommuteMinutes: hard.maxCommuteMinutes,
+    },
   };
 }
 
-function scoreRows(rows: ListingRow[], profile: SearchProfile, hasSemanticQuery: boolean): ScoredListing[] {
-  const prices = rows.filter((row) => !missingCoreSet(row.details).has("price")).map((row) => Number(row.price));
-  const minPrice = prices.length ? Math.min(...prices) : 0;
-  const maxPrice = prices.length ? Math.max(...prices) : 0;
-  const scored: Array<Omit<ScoredListing, "view">> = rows.map((row) => {
-    const missing = missingCoreSet(row.details);
-    const feature = (key: string) => numberValue(row.features[key] ?? row.features[toSnake(key)]);
-    const amenityValues = [feature("poiConvenience500"), feature("poiSupermarket500"), feature("poiHospital1k"), feature("poiPark500")];
-    const flood = feature("floodIncidents500");
-    const liquefaction = feature("liquefactionLevel");
-    const scores: Record<Dimension, number> = {
-      price: missing.has("price") ? 0.5 : maxPrice === minPrice ? 0.7 : 1 - (row.price - minPrice) / (maxPrice - minPrice),
-      value: 1 - (feature("pricePercentile") ?? 0.5),
-      weather: average([closeness(feature("summerTemp"), 26, 8), 1 - clamp((feature("rainDays") ?? 150) / 260), 1 - clamp((feature("annualRainfall") ?? 2500) / 5000)]),
-      location: average([inverseDistance(feature("distToMetro"), 1500), inverseDistance(feature("commuteToCbdMin"), 60)]),
-      amenities: amenityValues.every((value) => value === undefined) ? 0.5 : clamp(((amenityValues[0] ?? 0) + (amenityValues[1] ?? 0) * 2 + (amenityValues[2] ?? 0) * 2 + (amenityValues[3] ?? 0)) / 25),
-      space: average([missing.has("area") ? 0.5 : clamp(row.area / 40), missing.has("rooms") ? 0.5 : clamp(row.rooms / 4)]),
-      quality: average([missing.has("age") ? 0.5 : 1 - clamp(row.age / 50), missing.has("hasElevator") ? 0.5 : row.has_elevator ? 1 : 0.35, missing.has("hasParking") ? 0.5 : row.has_parking ? 1 : 0.45, numberValue(row.details.daylightScore) ?? 0.5]),
-      hazard: average([flood === undefined ? 0.5 : 1 - clamp(flood / 5), liquefaction === undefined ? 0.5 : 1 - clamp((liquefaction - 1) / 2)]),
-    };
-    const weights = DIMENSIONS.map((dimension) => Math.max(profile.weights[dimension] ?? 0, 0));
-    const weightTotal = weights.reduce((sum, value) => sum + value, 0) || 1;
-    const structured = DIMENSIONS.reduce((sum, dimension, index) => sum + scores[dimension] * (weights[index] ?? 0), 0) / weightTotal;
-    const semanticScore = clamp(Number(row.semantic_score ?? 0.5));
-    const score = hasSemanticQuery ? structured * 0.6 + semanticScore * 0.4 : structured;
-    const breakdown = Object.fromEntries(DIMENSIONS.map((dimension, index) => [dimension, { subscore: scores[dimension], weight: (weights[index] ?? 0) / weightTotal, contribution: scores[dimension] * ((weights[index] ?? 0) / weightTotal) }])) as ScoredListing["breakdown"];
-    const top = DIMENSIONS.map((dimension) => ({ dimension, ...breakdown[dimension] })).sort((a, b) => b.contribution - a.contribution).slice(0, 3);
-    const dataGaps = [...(feature("distToMetro") === undefined ? ["distToMetro"] : []), ...(feature("pricePercentile") === undefined ? ["pricePercentile"] : []), ...(flood === undefined ? ["floodIncidents500"] : []), ...(liquefaction === undefined ? ["liquefactionLevel"] : [])];
-    return { id: row.id, source: row.source, sourceId: row.source_id, mode: row.mode, url: row.url, title: row.title, scrapedAt: new Date(row.scraped_at).getTime(), city: row.city, district: row.district, address: row.address, lat: Number(row.lat), lng: Number(row.lng), price: Number(row.price), unitPrice: Number(row.unit_price), area: Number(row.area), layout: row.layout, rooms: row.rooms, floor: row.floor, totalFloor: row.total_floor, age: Number(row.age), buildingType: row.building_type, hasElevator: row.has_elevator, hasParking: row.has_parking, features: row.features, details: row.details, facts: row.facts ?? [], score: clamp(score), semanticScore, breakdown, matchReasons: [...(hasSemanticQuery && semanticScore >= 0.6 ? ["語意需求相符"] : []), ...top.map((item) => `${dimensionLabel(item.dimension)} ${Math.round(item.subscore * 100)}%`)], dataGaps };
-  });
-  return scored.sort((a, b) => b.score - a.score).map((listing, index, all) => ({ ...listing, view: buildListingView(listing, index, all.length) }));
-}
-
-function buildListingView(listing: Omit<ScoredListing, "view">, index: number, total: number): ListingView {
-  const missing = missingCoreSet(listing.details);
-  const known = (key: string, value: string) => missing.has(key) ? "未提供" : value;
-  const scoreRows = DIMENSIONS.map((key) => ({ key, label: dimensionLabel(key), ...listing.breakdown[key] }));
-  const peak = Math.max(...scoreRows.map((row) => row.subscore));
-  const active = scoreRows.filter((row) => row.weight > 0).sort((a, b) => b.subscore - a.subscore);
-  const ranked = active.length ? active : [...scoreRows].sort((a, b) => b.subscore - a.subscore);
-  const core = [
-    { key: "address", label: "地址", value: listing.address || "—", wide: true, group: "基本資料" },
-    { key: "price", label: listing.mode === "rent" ? "月租" : "總價", value: known("price", formatPrice(listing.mode, listing.price)), wide: false, group: "基本資料" },
-    { key: "unitPrice", label: "單價", value: known("unitPrice", `${listing.unitPrice.toLocaleString("zh-Hant-TW")} ${listing.mode === "rent" ? "元／坪" : "萬／坪"}`), wide: false, group: "基本資料" },
-    { key: "area", label: "坪數", value: known("area", `${listing.area.toFixed(1)} 坪`), wide: false, group: "基本資料" },
-    { key: "layout", label: "格局", value: known("layout", listing.layout || "—"), wide: false, group: "基本資料" },
-    { key: "floor", label: "樓層", value: known("floor", missing.has("totalFloor") ? `${listing.floor} 樓` : `${listing.floor}／${listing.totalFloor} 樓`), wide: false, group: "基本資料" },
-    { key: "age", label: "屋齡", value: known("age", `${listing.age.toFixed(0)} 年`), wide: false, group: "基本資料" },
-    { key: "buildingType", label: "建物類型", value: known("buildingType", listing.buildingType || "—"), wide: false, group: "基本資料" },
-    { key: "hasElevator", label: "電梯", value: known("hasElevator", listing.hasElevator ? "有" : "無"), wide: false, group: "基本資料" },
-    { key: "hasParking", label: "車位", value: known("hasParking", listing.hasParking ? "有" : "無"), wide: false, group: "基本資料" },
-    { key: "source", label: "刊登來源", value: listing.source || "—", wide: false, group: "來源" },
-  ];
-  const dynamic = listing.facts.map((fact) => ({ key: fact.key, label: fact.label, value: fact.displayValue, wide: false, group: fact.group }));
-  const preferred = ["distToMetro", "commuteToCbdMin", "summerTemp", "annualRainfall", "rainDays", "poiConvenience500", "poiPark500"];
-  const cardFacts = preferred.map((key) => dynamic.find((fact) => fact.key === key)).filter((fact): fact is NonNullable<typeof fact> => Boolean(fact)).slice(0, 6);
+function toAssessmentCandidate(row: ListingRow): AssessmentCandidate {
+  const facts = completeFacts(row);
   return {
-    rankLabel: `第 ${index + 1} 名`,
-    locationLabel: `${listing.city}${listing.district}`,
-    priceText: known("price", formatPrice(listing.mode, listing.price)),
-    summaryText: [known("area", `${listing.area.toFixed(1)} 坪`), known("layout", listing.layout || "—"), known("age", `屋齡 ${listing.age.toFixed(0)} 年`), known("floor", missing.has("totalFloor") ? `${listing.floor} 樓` : `${listing.floor}/${listing.totalFloor} 樓`)].join("・"),
-    score: { label: "整體評分", ...starView(listing.score) },
-    scores: scoreRows.map((row) => ({ key: row.key, label: row.label, ...starView(row.subscore), barPercent: Math.round(row.subscore * 100), pointsText: `${Math.round(row.subscore * 100 * row.weight)} 分`, lead: row.subscore === peak })),
-    cardFacts,
-    detailFacts: [...core, ...dynamic],
-    strengths: ranked[0] ? [`${ranked[0].label}表現較佳（${Math.round(ranked[0].subscore * 100)}）`] : [],
-    tradeoffs: ranked[1] ? [`${ranked.at(-1)!.label}相對弱（${Math.round(ranked.at(-1)!.subscore * 100)}）`] : [],
-    marker: { label: String(index + 1), title: `${listing.title}｜${Math.round(listing.score * 100)} 分`, color: rankColor(index, total), size: index < 3 ? 38 : 32, zIndex: total - index },
-    action: listing.url ? { label: "查看原始物件 ↗", url: listing.url } : null,
+    id: row.id,
+    title: row.title,
+    address: row.address,
+    source: row.source,
+    semanticScore: clamp(Number(row.semantic_score ?? 0.5)),
+    facts: facts.map((fact) => ({ key: fact.key, label: fact.label, value: fact.value, displayValue: fact.displayValue, ...(fact.confidence === undefined ? {} : { confidence: fact.confidence }), ...(fact.evidence ? { evidence: fact.evidence.slice(0, 240) } : {}) })),
   };
 }
 
-function starView(score: number) { return { starsText: `${(score * 5).toFixed(1)}`, fillPercent: Math.round(clamp(score) * 100) }; }
-
-function formatPrice(mode: Mode, price: number): string {
-  if (mode === "rent") return `${Math.round(price).toLocaleString("zh-Hant-TW")} 元/月`;
-  return price >= 10_000 ? `${(price / 10_000).toFixed(1)} 億` : `${Math.round(price).toLocaleString("zh-Hant-TW")} 萬`;
+function toSearchResult(row: ListingRow, assessment: CandidateAssessment, index: number, total: number): SearchResult {
+  const facts = completeFacts(row);
+  const matched = assessment.matchedFactKeys.map((key) => facts.find((fact) => fact.key === key)).filter((fact): fact is ListingFact => Boolean(fact));
+  const cardFacts = [...matched, ...facts.filter((fact) => !assessment.matchedFactKeys.includes(fact.key))].slice(0, 6).map(toViewFact);
+  return {
+    id: row.id,
+    title: row.title,
+    source: { id: row.source_id, name: row.source, url: row.url },
+    location: { address: row.address, lat: Number(row.lat), lng: Number(row.lng) },
+    facts,
+    assessment,
+    view: {
+      rankLabel: `第 ${index + 1} 名`,
+      locationLabel: row.address,
+      cardFacts,
+      detailFacts: [
+        { key: "address", label: "地址", value: row.address, wide: true, group: "位置" },
+        { key: "coordinates", label: "座標", value: `${Number(row.lat).toFixed(6)}, ${Number(row.lng).toFixed(6)}`, wide: true, group: "位置" },
+        { key: "source", label: "來源", value: row.source, wide: false, group: "來源" },
+        ...facts.map((fact) => ({ ...toViewFact(fact), group: fact.group })),
+      ],
+      marker: { label: String(index + 1), title: `${row.title}｜匹配 ${assessment.score} 分`, color: rankColor(index, total), size: index < 3 ? 38 : 32, zIndex: total - index },
+      action: row.url ? { label: "查看原始物件 ↗", url: row.url } : null,
+    },
+  };
 }
 
-function rankColor(index: number, total: number): string {
-  const position = total <= 1 ? 0 : index / (total - 1);
-  const stops = position <= 0.5 ? [[90, 97, 72], [155, 106, 67], position * 2] : [[155, 106, 67], [107, 75, 52], (position - 0.5) * 2];
-  const from = stops[0] as number[]; const to = stops[1] as number[]; const amount = stops[2] as number;
-  return `rgb(${from.map((value, i) => Math.round(value + ((to[i] ?? value) - value) * amount)).join(", ")})`;
+function completeFacts(row: ListingRow): ListingFact[] {
+  const missing = new Set(Array.isArray(row.details._missingCore) ? row.details._missingCore.filter((value): value is string => typeof value === "string") : []);
+  const core: ListingFact[] = [];
+  const add = (key: string, label: string, value: unknown, displayValue: string) => { if (!missing.has(key)) core.push({ key, label, group: "物件資料", value, displayValue, sourceName: row.source, sourceUrl: row.url }); };
+  add("price", row.mode === "rent" ? "月租" : "總價", row.price, formatPrice(row.mode, row.price));
+  add("unitPrice", "單價", row.unit_price, `${Number(row.unit_price).toLocaleString("zh-Hant-TW")} ${row.mode === "rent" ? "元／坪" : "萬／坪"}`);
+  add("area", "坪數", row.area, `${Number(row.area).toFixed(1)} 坪`);
+  add("layout", "格局", row.layout, row.layout);
+  add("rooms", "房數", row.rooms, `${row.rooms} 房`);
+  add("floor", "樓層", row.floor, missing.has("totalFloor") ? `${row.floor} 樓` : `${row.floor}／${row.total_floor} 樓`);
+  add("age", "屋齡", row.age, `${Number(row.age).toFixed(0)} 年`);
+  add("buildingType", "建物類型", row.building_type, row.building_type);
+  add("hasElevator", "電梯", row.has_elevator, row.has_elevator ? "有" : "無");
+  add("hasParking", "車位", row.has_parking, row.has_parking ? "有" : "無");
+  const merged = new Map<string, ListingFact>();
+  for (const fact of [...core, ...(row.facts ?? [])]) merged.set(fact.key, fact);
+  return [...merged.values()];
 }
 
-function project(listing: ScoredListing): RankedListing {
-  return { id: listing.id, title: listing.title, url: listing.url, city: listing.city, district: listing.district, address: listing.address, price: listing.price, unitPrice: listing.unitPrice, area: listing.area, layout: listing.layout, floor: listing.floor, totalFloor: listing.totalFloor, age: listing.age, buildingType: listing.buildingType, hasElevator: listing.hasElevator, hasParking: listing.hasParking, score: round(listing.score), semanticScore: round(listing.semanticScore), matchReasons: listing.matchReasons, topDimensions: DIMENSIONS.map((dimension) => ({ dimension: dimensionLabel(dimension), subscore: round(listing.breakdown[dimension].subscore), weight: round(listing.breakdown[dimension].weight) })).sort((a, b) => b.subscore * b.weight - a.subscore * a.weight).slice(0, 3), distToMetro: numberValue(listing.features.distToMetro) ?? null, commuteToCbdMin: numberValue(listing.features.commuteToCbdMin) ?? null, pricePercentile: numberValue(listing.features.pricePercentile) ?? null, dataGaps: listing.dataGaps.map(gapLabel) };
+function semanticAssessment(row: ListingRow): CandidateAssessment {
+  const score = Math.round(clamp(Number(row.semantic_score ?? 0.5)) * 100);
+  return { score, starsText: (score / 20).toFixed(1), confidence: 0.35, summary: "依目前資料與搜尋需求的語意相符程度排序。", strengths: [], tradeoffs: [], matchedFactKeys: [], missingInformation: [] };
+}
+
+function project(result: SearchResult): RankedListing {
+  const cited = new Set(result.assessment.matchedFactKeys);
+  return {
+    id: result.id,
+    title: result.title,
+    source: result.source.name,
+    url: result.source.url,
+    address: result.location.address,
+    lat: result.location.lat,
+    lng: result.location.lng,
+    score: result.assessment.score,
+    confidence: result.assessment.confidence,
+    summary: result.assessment.summary,
+    strengths: result.assessment.strengths,
+    tradeoffs: result.assessment.tradeoffs,
+    missingInformation: result.assessment.missingInformation,
+    facts: result.facts.filter((fact) => !cited.size || cited.has(fact.key)).slice(0, 12).map((fact) => ({ label: fact.label, value: fact.displayValue, ...(fact.evidence ? { evidence: fact.evidence } : {}) })),
+  };
+}
+
+function applyHardFilters(where: string[], values: unknown[], hard: Record<string, unknown>): void {
+  const selectedCities = stringArray(hard.cities);
+  const regionCities = stringArray(hard.regions).flatMap((region) => REGION_CITIES[region] ?? []);
+  const cityFilter = selectedCities.length && regionCities.length ? selectedCities.filter((city) => regionCities.includes(city)) : selectedCities.length ? selectedCities : regionCities;
+  addArrayFilter(where, values, "city", cityFilter, false);
+  addArrayFilter(where, values, "district", stringArray(hard.districts), false);
+  addArrayFilter(where, values, "city", stringArray(hard.excludedCities), true);
+  addArrayFilter(where, values, "district", stringArray(hard.excludedDistricts), true);
+  addCoreNumberFilter(where, values, "price", ">=", numberValue(hard.budgetMin), "price");
+  addCoreNumberFilter(where, values, "price", "<=", numberValue(hard.budgetMax), "price");
+  addCoreNumberFilter(where, values, "area", ">=", numberValue(hard.minArea), "area");
+  addCoreNumberFilter(where, values, "rooms", ">=", numberValue(hard.minRooms), "rooms");
+  addCoreNumberFilter(where, values, "age", "<=", numberValue(hard.maxAge), "age");
+  addBooleanFilter(where, values, "has_elevator", hard.needElevator);
+  addBooleanFilter(where, values, "has_parking", hard.needParking);
+  const buildingTypes = stringArray(hard.buildingTypes);
+  if (buildingTypes.length) { values.push(buildingTypes.map((value) => `%${value}%`)); where.push(`building_type LIKE ANY($${values.length}::text[])`); }
+  addFeatureNumberFilter(where, values, "distToMetro", numberValue(hard.maxDistToMetro));
+  addFeatureNumberFilter(where, values, "commuteToCbdMin", numberValue(hard.maxCommuteMinutes));
+  const near = parseNear(hard.near);
+  if (near) {
+    values.push(near.lat, near.lng, near.radiusKm);
+    const lat = `$${values.length - 2}`;
+    const lng = `$${values.length - 1}`;
+    const radius = `$${values.length}`;
+    where.push(`6371 * acos(least(1, cos(radians(${lat}::double precision)) * cos(radians(lat)) * cos(radians(lng) - radians(${lng}::double precision)) + sin(radians(${lat}::double precision)) * sin(radians(lat)))) <= ${radius}::double precision`);
+  }
 }
 
 async function resolvePlace(pool: pg.Pool, place: string, radiusKm?: number) {
@@ -290,22 +341,23 @@ async function resolvePlace(pool: pg.Pool, place: string, radiusKm?: number) {
   return row ? { lat: row.lat, lng: row.lng, radiusKm: radiusKm ?? 5, label: `${row.city}${row.district}` } : null;
 }
 
+function toViewFact(fact: ListingFact) { return { key: fact.key, label: fact.label, value: fact.displayValue, wide: false }; }
+function formatPrice(mode: Mode, price: number): string { return mode === "rent" ? `${Math.round(price).toLocaleString("zh-Hant-TW")} 元/月` : price >= 10_000 ? `${(price / 10_000).toFixed(1)} 億` : `${Math.round(price).toLocaleString("zh-Hant-TW")} 萬`; }
+function rankColor(index: number, total: number): string { const position = total <= 1 ? 0 : index / (total - 1); const from = position <= 0.5 ? [90, 97, 72] : [155, 106, 67]; const to = position <= 0.5 ? [155, 106, 67] : [107, 75, 52]; const amount = position <= 0.5 ? position * 2 : (position - 0.5) * 2; return `rgb(${from.map((value, i) => Math.round(value + ((to[i] ?? value) - value) * amount)).join(", ")})`; }
 function addArrayFilter(where: string[], values: unknown[], column: string, items: string[], excluded: boolean) { if (items.length) { values.push(items); where.push(`${column} ${excluded ? "<> ALL" : "= ANY"}($${values.length}::text[])`); } }
-function addNumberFilter(where: string[], values: unknown[], column: string, operator: string, value?: number) { if (value !== undefined) { values.push(value); where.push(`${column} ${operator} $${values.length}`); } }
-function addCoreNumberFilter(where: string[], values: unknown[], column: string, operator: string, value: number | undefined, key: string) { if (value !== undefined) { addNumberFilter(where, values, column, operator, value); where.push(`NOT (COALESCE(details->'_missingCore', '[]'::jsonb) ? '${key}')`); } }
-function addBooleanFilter(where: string[], values: unknown[], column: string, value: unknown) { if (value === true) { values.push(true); where.push(`${column} = $${values.length}`); } }
-function parseNear(value: unknown): { lat: number; lng: number; radiusKm: number } | null { if (!value || typeof value !== "object") return null; const candidate = value as Record<string, unknown>; const lat = numberValue(candidate.lat); const lng = numberValue(candidate.lng); const radiusKm = numberValue(candidate.radiusKm); return lat === undefined || lng === undefined || radiusKm === undefined ? null : { lat, lng, radiusKm }; }
-function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : []; }
-function numberValue(value: unknown): number | undefined { const parsed = typeof value === "number" ? value : typeof value === "string" && value ? Number(value) : NaN; return Number.isFinite(parsed) ? parsed : undefined; }
-function clamp(value: number): number { return Math.min(Math.max(value, 0), 1); }
-function average(values: number[]): number { return values.reduce((sum, value) => sum + value, 0) / values.length; }
-function missingCoreSet(details: Record<string, unknown>): Set<string> { return new Set(Array.isArray(details._missingCore) ? details._missingCore.filter((value): value is string => typeof value === "string") : []); }
-function closeness(value: number | undefined, target: number, range: number): number { return value === undefined ? 0.5 : 1 - clamp(Math.abs(value - target) / range); }
-function inverseDistance(value: number | undefined, scale: number): number { return value === undefined ? 0.5 : 1 / (1 + value / scale); }
-function round(value: number): number { return Math.round(value * 100) / 100; }
-function toSnake(value: string): string { return value.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`); }
-function dimensionLabel(value: Dimension): string { return { price: "價格", value: "性價比", weather: "氣候", location: "交通", amenities: "機能", space: "空間", quality: "屋況", hazard: "風險" }[value]; }
-function gapLabel(key: string): string {
-  return { distToMetro: "捷運距離", pricePercentile: "同區行情位置", floodIncidents500: "附近淹水紀錄", liquefactionLevel: "土壤液化" }[key] ?? key;
-}
-const REGION_CITIES: Record<string, string[]> = { 北部: ["臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "宜蘭縣"], 中部: ["臺中市", "苗栗縣", "彰化縣", "南投縣", "雲林縣"], 南部: ["高雄市", "臺南市", "嘉義市", "嘉義縣", "屏東縣"], 東部: ["花蓮縣", "臺東縣"], 離島: ["澎湖縣", "金門縣", "連江縣"] };
+function addCoreNumberFilter(where: string[], values: unknown[], column: string, operator: string, value: number | undefined, key: string) { if (value !== undefined) { values.push(value); where.push(`${column} ${operator} $${values.length}`); where.push(`NOT (COALESCE(details->'_missingCore', '[]'::jsonb) ? '${key}')`); } }
+function addBooleanFilter(where: string[], values: unknown[], column: string, value: unknown) { if (value === true) where.push(`${column} = true`); }
+function addFeatureNumberFilter(where: string[], values: unknown[], key: string, value?: number) { if (value !== undefined) { values.push(value); where.push(`(features->>'${key}')::double precision <= $${values.length}`); } }
+function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").map((item) => item.replace(/台/g, "臺")) : []; }
+function numberValue(value: unknown): number | undefined { if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value); return undefined; }
+function parseNear(value: unknown): { lat: number; lng: number; radiusKm: number } | null { if (!value || typeof value !== "object") return null; const row = value as Record<string, unknown>; const lat = numberValue(row.lat); const lng = numberValue(row.lng); const radiusKm = numberValue(row.radiusKm); return lat !== undefined && lng !== undefined && radiusKm !== undefined ? { lat, lng, radiusKm } : null; }
+function clamp(value: number): number { return Math.max(0, Math.min(1, value)); }
+function isMissingRelation(error: unknown): boolean { return Boolean(error && typeof error === "object" && "code" in error && (error as { code: string }).code === "42P01"); }
+
+const REGION_CITIES: Record<string, string[]> = {
+  北部: ["臺北市", "新北市", "基隆市", "桃園市", "新竹市", "新竹縣", "宜蘭縣"],
+  中部: ["臺中市", "苗栗縣", "彰化縣", "南投縣", "雲林縣"],
+  南部: ["高雄市", "臺南市", "嘉義市", "嘉義縣", "屏東縣"],
+  東部: ["花蓮縣", "臺東縣"],
+  離島: ["澎湖縣", "金門縣", "連江縣"],
+};

@@ -41,7 +41,7 @@ export function Entrance({ onSubmit, disabled, statusLabel, statusOk }: Props) {
       </div>
 
       <p className="text-center text-sm text-neutral-500">
-        用一句話描述你想要的生活，agent 會先選出適合的行政區，再從那些區裡挑物件
+        用一句話描述你想要的生活，AI 會搜尋物件資料，並依所有可用細節找出適合的選擇
       </p>
 
       <form onSubmit={submit} className="mt-6 flex gap-2">

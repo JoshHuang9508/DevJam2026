@@ -36,7 +36,7 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
 
   return [
     {
-      name: "update_preferences", label: "更新偏好", description: "將使用者的 hard constraints 或 soft preference 變更寫入同一份 persistent state。patch 必須符合 PreferencePatch。",
+      name: "update_preferences", label: "更新必要條件", description: "將使用者明確要求的必要條件寫入 persistent state。程度性的偏好保留在 rank_listings 的 semanticQuery，不要轉成權重。patch 必須符合 PreferencePatch。",
       parameters: Type.Object({ patch: Type.Any({ description: PATCH_SHAPE }) }),
       executionMode: "sequential",
       execute: async (_id, params) => {
@@ -108,8 +108,8 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
       name: "rank_listings",
       label: "排名實際房屋物件",
       description:
-        "用目前的 preference state 對物件資料集排名，回傳可以直接向使用者推薦的實際房屋物件（含地址、價格、坪數、格局、屋齡、分數與貢獻最大的三個維度）。" +
-        "這是回答任何關於房子的問題的唯一資料來源。分數由向量召回與結構化重排產生，不得自行計算或改寫。" +
+        "先以必要條件篩選並用向量找候選，再由 AI 讀取每個候選的全部動態 facts，以本次 semanticQuery 建立共同標準、比較候選並產生整體匹配分數。" +
+        "這是回答任何關於房子的問題的唯一資料來源。分數只代表物件對本次需求的相對匹配度，不是永久品質分數，不得自行計算或改寫。" +
         "搜尋範圍完全由 preference state 的 hardConstraints 決定：使用者指定過地區的話，回傳的物件一定在那個地區內，" +
         "而且找不到時也不會自動擴大範圍（回傳的 relaxations 會說明）。要改範圍就先呼叫 update_preferences。",
       parameters: Type.Object({
@@ -212,26 +212,16 @@ export function createDomainTools(deps: ToolDependencies): AgentTool<any>[] {
 function speakableListing(listing: RankedListing) {
   return {
     標題: listing.title,
-    縣市: listing.city,
-    行政區: listing.district,
     地址: listing.address,
-    價格: listing.price,
-    單價: listing.unitPrice,
-    坪數: listing.area,
-    格局: listing.layout,
-    樓層: listing.floor,
-    總樓層: listing.totalFloor,
-    屋齡: listing.age,
-    建物類型: listing.buildingType,
-    電梯: listing.hasElevator ? "有" : "無",
-    車位: listing.hasParking ? "有" : "無",
-    分數: listing.score,
-    原因: listing.matchReasons,
-    較突出的面向: listing.topDimensions.map((item) => ({ 面向: item.dimension, 分數: item.subscore })),
-    捷運距離公尺: listing.distToMetro,
-    到市中心通勤分鐘: listing.commuteToCbdMin,
-    同區行情位置: listing.pricePercentile,
-    缺少的資料: listing.dataGaps,
+    來源: listing.source,
+    原始網址: listing.url,
+    本次需求匹配分數: listing.score,
+    評估信心: listing.confidence,
+    綜合說明: listing.summary,
+    優點: listing.strengths,
+    取捨: listing.tradeoffs,
+    尚缺資訊: listing.missingInformation,
+    引用資料: listing.facts,
   };
 }
 
@@ -321,14 +311,7 @@ const PATCH_SHAPE = [
   "minMonthlyRent, maxMonthlyRent, maxCommuteMinutes — all flat, never nested under housing/transportation.",
   "cities 用完整名稱（臺北市、新北市），districts 用完整名稱（大安區）。regions 與 cities 同時給是取交集。",
   "地區欄位是使用者說出口才填的硬條件，填了就一定生效、找不到也不會自動擴大；不要為了讓結果變多而自己塞。",
-  "softPreferences.housing: weight, preferLowerRent.",
-  "softPreferences.climate: weight, temperature{preferredMin,preferredMax,weight}, rainfall{preference:low|medium|high,weight}, humidity{preference,weight}.",
-  "softPreferences.transportation: weight, railwayAccess, highSpeedRailAccess, mrtAccess, busAccess.",
-  "softPreferences.amenities: weight, convenienceStore, supermarket, hospital, clinic, restaurant, school, park.",
-  "softPreferences.geography: weight, urbanDensity, elevation, coastalPreference (-1..1).",
-  "listingPreferences: priceWeight, valueWeight, spaceWeight, qualityWeight, hazardWeight (0..1)。",
-  "hazardWeight 是災害風險（附近淹水災點密度 + 土壤液化潛勢）的比重，預設 0.5。使用者說「怕淹水」「不要低窪」「在意土壤液化」就調高它。",
-  "Every weight is 0..1. Omit whatever the user did not mention.",
+  "程度性的需求不要寫進 patch，原句保留給 rank_listings.semanticQuery，由 AI 根據所有 facts 評估。",
 ].join(" ");
 
 /** Paths present in the model's patch that the schema strips, i.e. silently ignored. */

@@ -149,7 +149,7 @@ export function MapView({
     const shouldShow = new Set<string>()
     results.forEach((result) => {
       const pinned = result.id === selectedId || result.id === hoveredId
-      if (!pinned && viewport && !inBounds(result, viewport)) return
+      if (!pinned && viewport && !inBounds(result.location, viewport)) return
       shouldShow.add(result.id)
 
       let entry = markersRef.current.get(result.id)
@@ -181,7 +181,7 @@ export function MapView({
           element: el,
           anchor: 'center',
           subpixelPositioning: true,
-        }).setLngLat([result.lng, result.lat])
+        }).setLngLat([result.location.lng, result.location.lat])
         entry = { marker, el, attached: false }
         markersRef.current.set(result.id, entry)
       }
@@ -210,7 +210,7 @@ export function MapView({
     cancelCameraRef.current?.()
     cancelCameraRef.current = null
     const bounds = new maplibre.LngLatBounds()
-    results.forEach((result) => bounds.extend([result.lng, result.lat]))
+    results.forEach((result) => bounds.extend([result.location.lng, result.location.lat]))
     map.fitBounds(bounds, {
       padding: FIT_PADDING,
       maxZoom: MAX_FIT_ZOOM,
@@ -242,7 +242,7 @@ export function MapView({
     const zoom = Math.max(map.getZoom(), SELECT_ZOOM)
     cancelCameraRef.current?.()
     cancelCameraRef.current = animateCamera(map, {
-      center: [target.lng, target.lat],
+      center: [target.location.lng, target.location.lat],
       zoom,
     })
     return () => {
@@ -267,7 +267,7 @@ export function MapView({
     let frame = 0
     const update = () => {
       frame = 0
-      const point = map.project([target.lng, target.lat])
+      const point = map.project([target.location.lng, target.location.lat])
       setAnchor({ x: point.x, y: point.y })
     }
     const schedule = () => {

@@ -1,5 +1,9 @@
 import 'server-only'
-import type { BackendHealth } from './types'
+
+interface BackendHealth {
+  status: 'ok'
+  runtime: string
+}
 
 /**
  * The Fastify recommendation backend (repo `backend/`). Server-side only —

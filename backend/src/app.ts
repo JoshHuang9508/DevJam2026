@@ -76,12 +76,12 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
   });
   app.post("/listings/pool", { config: { rateLimit: false }, schema: { body: z.object({ mode: z.enum(["sale", "rent"]), cities: z.array(z.string()).default([]) }) } }, async (request, reply) => {
     if (!(await deps.listings.available())) return reply.serviceUnavailable("物件資料庫尚未建立");
-    const profile: SearchProfile = { mode: request.body.mode, weights: { price: 50, value: 50, weather: 50, location: 50, amenities: 50, space: 50, quality: 50, hazard: 50 }, hard: { cities: request.body.cities } };
-    return (await deps.listings.search(profile, "", 500)).results.map((listing) => ({ ...listing, ...listing.features, features: undefined }));
+    const profile: SearchProfile = { mode: request.body.mode, hard: { cities: request.body.cities } };
+    return (await deps.listings.search(profile, "", 30)).results;
   });
   app.post("/listings/search", {
     config: { rateLimit: false },
-    schema: { body: z.object({ profile: z.object({ mode: z.enum(["sale", "rent"]), weights: z.record(z.string(), z.number()), hard: z.record(z.string(), z.unknown()), soft: z.record(z.string(), z.unknown()).optional(), notes: z.array(z.string()).optional() }), semanticQuery: z.string().max(4_000).optional(), limit: z.number().int().min(1).max(500).optional() }) },
+    schema: { body: z.object({ profile: z.object({ mode: z.enum(["sale", "rent"]), hard: z.record(z.string(), z.unknown()), notes: z.array(z.string()).optional() }), semanticQuery: z.string().max(4_000).optional(), limit: z.number().int().min(1).max(30).optional() }) },
   }, async (request, reply) => {
     if (!(await deps.listings.available())) return reply.serviceUnavailable("物件向量資料庫尚未建立");
     const semanticQuery = request.body.semanticQuery ?? request.body.profile.notes?.join(" ") ?? "";
@@ -139,10 +139,11 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
     const send = (event: string, data: unknown) => reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     const message = request.body.message;
     const clientProfile = request.body.profile;
+    let activeProfile = clientProfile;
     let sessionId = request.body.sessionId;
     const emitResults = async (profile: UiSearchProfile) => {
       const nextProfile = { ...profile, notes: [...new Set([message, ...profile.notes])].slice(0, 10) };
-      const ranked = await deps.listings.search(asProviderProfile(nextProfile), nextProfile.notes.join(" "), 100, request.signal);
+      const ranked = await deps.listings.search(asProviderProfile(nextProfile), nextProfile.notes.join(" "), 30, request.signal);
       send("profile", nextProfile);
       send("results", { results: ranked.results, relaxations: ranked.relaxations });
     };
@@ -160,12 +161,11 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
       let sawText = false;
       for await (const event of deps.agent.runTurn(sessionId, message, request.signal)) {
         if (event.type === "preferences.updated") {
-          await emitResults(toUiSearchProfile(event.preferences, clientProfile));
-          emittedResults = true;
+          activeProfile = toUiSearchProfile(event.preferences, activeProfile);
         } else if (event.type === "listings.ranked") {
           const parsed = uiSearchProfileSchema.safeParse(event.effectiveProfile);
-          const effective = parsed.success ? parsed.data : clientProfile;
-          send("profile", { ...effective, notes: [...new Set([message, ...clientProfile.notes])].slice(0, 10) });
+          activeProfile = parsed.success ? { ...parsed.data, notes: activeProfile.notes } : activeProfile;
+          send("profile", { ...activeProfile, notes: [...new Set([message, ...activeProfile.notes])].slice(0, 10) });
           send("results", { results: event.results, relaxations: [] });
           emittedResults = true;
         } else if (event.type === "message.delta") {
@@ -177,7 +177,7 @@ export async function buildApp(deps: AppDependencies): Promise<FastifyInstance> 
           send("error", { message: event.message });
         }
       }
-      if (!emittedResults) await emitResults(clientProfile);
+      if (!emittedResults) await emitResults(activeProfile);
       send("done", {});
     } catch (error) {
       request.log.error({ err: error }, "ui chat failed");

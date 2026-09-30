@@ -51,7 +51,7 @@ export function ListingList({ results, hoveredId, selectedId, onHover, onSelect,
       </div>
 
       {results.length === 0 ? (
-        <p className="p-4 text-sm text-neutral-500">還沒有結果。描述一下你想要的生活，或直接調整權重。</p>
+        <p className="p-4 text-sm text-neutral-500">還沒有結果。描述一下你想要的生活與找房條件。</p>
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
           {/* 不要在外面再包一層可點擊的 div。Task 4 已經把 role="button"、onClick

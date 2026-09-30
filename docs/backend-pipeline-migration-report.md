@@ -17,7 +17,9 @@ backend scheduler
 → 依 requires 執行 enrichment sources
 → 合併 facts
 → semantic_text 與 pgvector embedding
-→ 後端排名並建立 view
+→ SQL 硬篩選與向量召回候選
+→ AI 讀取全部 facts 並依當次需求評估排名
+→ 後端建立 assessment 與 view
 → 前端直接顯示
 ```
 
@@ -43,8 +45,11 @@ backend scheduler
 
 ### 搜尋與前端
 
-- `/listings/search` 在後端完成 SQL hard filter、向量召回、混合排名與展示格式。
-- 每筆結果包含可直接顯示的 `view`，包括星等、價格文字、卡片細項、右欄細項、marker 與原始物件按鈕。
+- `/listings/search` 在後端完成 SQL hard filter、向量召回、AI 綜合排名與展示格式。
+- AI 依每次使用者輸入建立評估標準，同時比較候選的所有 facts。整體分數不寫回資料庫。
+- 每筆結果只公開來源、地址、座標、動態 facts、當次 assessment 與可直接顯示的 `view`。
+- 固定八項分數、人工權重面板與前端重新排序已移除。
+- `view` 包括卡片細項、右欄細項、marker 與原始物件按鈕；前端不再格式化物件資料。
 - `/api/rank` 和 `/api/agent/chat` 現在是純代理。
 - 舊前端 scoring、SQLite、Drizzle 與資料格式化模組已移除。
 - 舊資料工具保留為 opt-in 相容流程，不再是標準 Compose 啟動相依。
@@ -58,6 +63,7 @@ backend scheduler
 5. `DETAIL_EXTRACTION_MODE=off` 時，既有 ingest API 仍可工作，但新的 raw pipeline 無法進行 AI 正規化。
 6. 標準 `docker compose up` 不再自動灌示範物件。舊 seed 必須使用 `legacy-data` profile 手動執行。
 7. `POST /pipeline/run`、來源管理與 enrichment 管理是內部管理 API，不應直接公開到網際網路。
+8. AI 評估新增 `ASSESSMENT_MODE`、`ASSESSMENT_MODEL`、`ASSESSMENT_BASE_URL`、`ASSESSMENT_API_KEY`。`auto` 會依專用金鑰、Gemini 金鑰或自訂 OpenAI 金鑰選擇服務；都沒有時使用向量降級排序。
 
 ## Docker Compose 升級步驟
 
@@ -109,6 +115,11 @@ DETAIL_EXTRACTION_MODE=auto
 DETAIL_EXTRACTION_MODEL=
 DETAIL_EXTRACTION_API_KEY=
 
+ASSESSMENT_MODE=auto
+ASSESSMENT_MODEL=
+ASSESSMENT_BASE_URL=
+ASSESSMENT_API_KEY=
+
 NOMINATIM_URL=https://nominatim.openstreetmap.org
 NOMINATIM_USER_AGENT="zhuchao-housing-agent/0.1 (你的聯絡網址或信箱)"
 NOMINATIM_EMAIL=
@@ -126,6 +137,8 @@ Google：
 ```dotenv
 DETAIL_EXTRACTION_MODE=google
 DETAIL_EXTRACTION_MODEL=gemini-2.5-flash
+ASSESSMENT_MODE=google
+ASSESSMENT_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=你的金鑰
 ```
 
@@ -136,6 +149,10 @@ DETAIL_EXTRACTION_MODE=openai
 DETAIL_EXTRACTION_MODEL=你的模型 ID
 DETAIL_EXTRACTION_BASE_URL=https://api.openai.com/v1
 DETAIL_EXTRACTION_API_KEY=你的金鑰
+ASSESSMENT_MODE=openai
+ASSESSMENT_MODEL=你的模型 ID
+ASSESSMENT_BASE_URL=https://api.openai.com/v1
+ASSESSMENT_API_KEY=你的金鑰
 ```
 
 要使用真正的向量模型：
@@ -321,6 +338,8 @@ DATABASE_URL=postgres://localhost:5432/home_selector
 REPOSITORY_MODE=postgres
 DETAIL_EXTRACTION_MODE=google
 DETAIL_EXTRACTION_MODEL=gemini-2.5-flash
+ASSESSMENT_MODE=google
+ASSESSMENT_MODEL=gemini-2.5-flash
 GEMINI_API_KEY=你的金鑰
 PIPELINE_POLL_INTERVAL_MS=60000
 ```

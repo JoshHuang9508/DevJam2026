@@ -78,7 +78,9 @@ raw source
 → listings
 → 外部 enrichment
 → embedding
-→ 搜尋與後端 view
+→ SQL 硬篩選與向量召回
+→ AI 依當次需求綜合評估
+→ assessment 與後端 view
 ```
 
 主要管理 API：
@@ -121,6 +123,17 @@ DETAIL_EXTRACTION_MODEL=你的模型 ID
 DETAIL_EXTRACTION_BASE_URL=https://api.openai.com/v1
 DETAIL_EXTRACTION_API_KEY=你的金鑰
 ```
+
+搜尋評分由 AI 讀取候選物件的全部 facts 後產生。可沿用 Gemini 或自訂 OpenAI 相容服務，也可設定獨立模型：
+
+```dotenv
+ASSESSMENT_MODE=auto
+ASSESSMENT_MODEL=
+ASSESSMENT_BASE_URL=
+ASSESSMENT_API_KEY=
+```
+
+`auto` 依序使用獨立評估金鑰、`GEMINI_API_KEY`、`CUSTOM_OPENAI_API_KEY`。都沒有或服務暫時失敗時，後端會以向量相似度降級排序並回傳較低信心度。
 
 ## 常用指令
 
