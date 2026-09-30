@@ -10,10 +10,13 @@ export const runtime = 'nodejs'
  */
 export async function GET() {
   const health = await getHealth().catch(() => null)
+  const listings = await getListingsStatus().catch(() => ({ available: false, total: 0 }))
   return NextResponse.json({
     backendUp: health !== null,
     // "pi-agent-core" = real LLM, "deterministic-fallback" = rule-based parser.
     agentRuntime: health?.runtime ?? null,
-    listingsDb: (await getListingsStatus().catch(() => ({ available: false }))).available,
+    // Table existing is not enough: after the Postgres cutover the volume can be
+    // empty while /listings/status still returns available=true.
+    listingsDb: Boolean(listings.available && listings.total > 0),
   })
 }
