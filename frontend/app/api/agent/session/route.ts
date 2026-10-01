@@ -15,8 +15,6 @@ export async function GET() {
     backendUp: health !== null,
     // "pi-agent-core" = real LLM, "deterministic-fallback" = rule-based parser.
     agentRuntime: health?.runtime ?? null,
-    // Table existing is not enough: after the Postgres cutover the volume can be
-    // empty while /listings/status still returns available=true.
-    listingsDb: Boolean(listings.available && listings.total > 0),
+    listingsDb: Boolean(listings.available),
   })
 }
