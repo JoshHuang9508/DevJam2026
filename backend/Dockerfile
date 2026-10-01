@@ -18,11 +18,10 @@ ENV PORT=3001
 # 沒有 PostgreSQL 就用記憶體模式；重啟會清掉 session
 ENV REPOSITORY_MODE=memory
 
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/package.json ./package.json
-
-RUN groupadd -r app && useradd -r -g app app && chown -R app:app /app
+RUN groupadd -r app && useradd -r -g app app
+COPY --from=build --chown=app:app /app/node_modules ./node_modules
+COPY --from=build --chown=app:app /app/dist ./dist
+COPY --from=build --chown=app:app /app/package.json ./package.json
 USER app
 
 EXPOSE 3001

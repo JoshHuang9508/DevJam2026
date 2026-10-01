@@ -11,6 +11,7 @@ readonly REPOSITORY_URL="https://github.com/JoshHuang9508/DevJam2026.git"
 readonly DEPLOY_DIR="/home/e0pwr/deployments/DevJam2026"
 readonly STATE_DIR="/home/e0pwr/.local/state/devjam2026"
 readonly LAST_GOOD_FILE="$STATE_DIR/last-successful-sha"
+readonly PRE_DEPLOY_BACKUP="$STATE_DIR/pre-deploy.dump"
 readonly LOCK_FILE="/tmp/devjam2026-deploy.lock"
 readonly COMPOSE_FILE="$DEPLOY_DIR/docker-compose.prod.yml"
 
@@ -62,6 +63,22 @@ if [[ -f /home/e0pwr/.config/devjam2026/env ]]; then
 fi
 compose+=(-f "$COMPOSE_FILE")
 
+backup_database() {
+  local temporary_backup="${PRE_DEPLOY_BACKUP}.tmp"
+  umask 077
+  "${compose[@]}" up -d --wait --wait-timeout 60 db || return
+  "${compose[@]}" exec -T db pg_dump -U postgres -d home_selector -Fc >"$temporary_backup" || return
+  mv -f "$temporary_backup" "$PRE_DEPLOY_BACKUP"
+}
+
+restore_database() {
+  [[ -s $PRE_DEPLOY_BACKUP ]] || return 1
+  "${compose[@]}" stop gateway web backend 2>/dev/null || true
+  "${compose[@]}" up -d --wait --wait-timeout 60 db || return
+  "${compose[@]}" exec -T db pg_restore -U postgres -d home_selector \
+    --clean --if-exists --no-owner --no-privileges --exit-on-error <"$PRE_DEPLOY_BACKUP"
+}
+
 deploy_and_check() {
   local sha="$1"
   local session
@@ -88,17 +105,35 @@ deploy_and_check() {
 
   session=$("${compose[@]}" exec -T web node -e \
     "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())}).catch(()=>process.exit(1))") || return
+
+  # A schema migration can intentionally clear incompatible legacy listings.
+  # Bootstrap the free MOI dataset before declaring the deployment unhealthy.
+  if [[ $session != *'"listingsDb":true'* ]] && \
+      "${compose[@]}" --profile tools config --services | grep -Fxq data-refresh; then
+    "${compose[@]}" --profile tools build data-refresh || return
+    "${compose[@]}" --profile tools run --rm data-refresh || return
+    session=$("${compose[@]}" exec -T web node -e \
+      "fetch('http://127.0.0.1:3000/api/agent/session').then(async r=>{if(!r.ok)process.exit(1);console.log(await r.text())}).catch(()=>process.exit(1))") || return
+  fi
   [[ $session == *'"backendUp":true'* && $session == *'"listingsDb":true'* && $session == *'"agentRuntime":"pi-agent-core"'* ]]
 }
 
 echo "Deploying $target_sha"
+if ! backup_database; then
+  echo "database backup failed; deployment was not started" >&2
+  exit 1
+fi
 if ! deploy_and_check "$target_sha"; then
   echo "deployment failed" >&2
   "${compose[@]}" ps >&2 || true
 
   if [[ $previous_sha =~ ^[0-9a-f]{40}$ && $previous_sha != "$target_sha" ]]; then
     echo "Rolling back to $previous_sha" >&2
-    deploy_and_check "$previous_sha"
+    if restore_database; then
+      deploy_and_check "$previous_sha"
+    else
+      echo "database restore failed; automatic code rollback was not attempted" >&2
+    fi
   fi
   exit 1
 fi

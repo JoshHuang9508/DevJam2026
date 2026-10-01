@@ -144,5 +144,31 @@ services:
       retries: 5
       start_period: 5s
 
+  # 免金鑰的內政部實價登錄更新工作。資料在 backend 解析並直接寫入
+  # PostgreSQL；profiles 確保平常 up 不會重複執行。
+  data-refresh:
+    profiles: ["tools"]
+    build:
+      context: ./backend
+    # Named volumes are created as root; this short-lived trusted importer needs
+    # write access to its download cache and has no published ports or host mounts.
+    user: "0:0"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["node", "dist/scripts/refresh-lvr.js"]
+    volumes:
+      - pipeline-cache:/app/cache
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/home_selector
+      EMBEDDING_MODE: ${EMBEDDING_MODE:-hash}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-https://api.openai.com/v1}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
+      PIPELINE_CACHE_DIR: /app/cache
+      LVR_CACHE_MAX_AGE_HOURS: ${LVR_CACHE_MAX_AGE_HOURS:-12}
+
 volumes:
   postgres-data:
+  pipeline-cache:

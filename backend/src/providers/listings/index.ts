@@ -123,7 +123,19 @@ export function createListingsProvider(options: { databaseUrl: string; embedding
       const requested = Math.min(Math.max(limit, 1), 30);
       values.push(Math.min(Math.max(requested * 2, 20), 40));
       const rows = (await pool.query<ListingRow>({
-        text: `SELECT id, source, source_id, url, address, lat, lng, facts, 1 - (embedding <=> ${vectorRef}) AS semantic_score FROM listings WHERE ${where.join(" AND ")} ORDER BY embedding <=> ${vectorRef} LIMIT $${values.length}`,
+        // Materialize the hard-filtered pool before vector ordering. With an
+        // HNSW index PostgreSQL can otherwise scan a small ANN candidate set
+        // first and apply selective city/budget filters afterwards, producing
+        // false zero-result searches even when matching rows exist.
+        text: `WITH filtered AS MATERIALIZED (
+          SELECT id, source, source_id, url, address, lat, lng, facts, embedding
+          FROM listings
+          WHERE ${where.join(" AND ")}
+        )
+        SELECT id, source, source_id, url, address, lat, lng, facts, 1 - (embedding <=> ${vectorRef}) AS semantic_score
+        FROM filtered
+        ORDER BY embedding <=> ${vectorRef}
+        LIMIT $${values.length}`,
         values,
         ...(signal ? { signal } : {}),
       })).rows;

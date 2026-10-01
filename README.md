@@ -94,6 +94,16 @@ raw source
 
 後端預設每 60 秒檢查到期來源。詳細設定、來源範例、migration 與操作 command 見 [後端資料管線改版與升級報告](docs/backend-pipeline-migration-report.md)。
 
+內政部實價登錄有獨立的後端 importer，不需要 AI 金鑰，會快取原始 ZIP、轉換成動態 facts 並保留已有的定位與環境補充資料：
+
+```bash
+./deploy/refresh-data.sh
+# 或
+docker compose -f docker-compose.prod.yml --profile tools run --rm --build data-refresh
+```
+
+CI/CD 若在 schema migration 後發現物件表為空，會先執行這個 importer 再做上線驗證。
+
 ## AI 與 embedding
 
 沒有 embedding key 時可使用本機 hash n-gram：
